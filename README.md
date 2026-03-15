@@ -6,6 +6,12 @@ Built for banks that don't offer API access — the app parses SMS notifications
 
 ---
 
+## 📥 Download
+
+> **[Download APK](#)** — _Link coming soon_
+
+---
+
 ## ✨ Features
 
 ### 📩 Automatic SMS Parsing
