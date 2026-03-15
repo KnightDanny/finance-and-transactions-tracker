@@ -146,13 +146,13 @@ export default function SettingsScreen() {
       {menuItems.map((item, index) => (
         <TouchableOpacity
           key={index}
-          style={[styles.menuItem, { borderBottomColor: isDark ? '#333' : '#e0e0e0' }]}
+          style={[styles.menuItem, { borderBottomColor: colors.divider }]}
           onPress={item.onPress}
         >
           <View style={styles.menuRow}>
             <View style={styles.menuTextGroup}>
               <Text style={[styles.menuTitle, { color: colors.text }]}>{item.title}</Text>
-              <Text style={[styles.menuSubtitle, { color: colors.text }]}>{item.subtitle}</Text>
+              <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>{item.subtitle}</Text>
             </View>
             {item.showSpinner && <ActivityIndicator size="small" color={colors.tint} />}
           </View>
@@ -164,37 +164,37 @@ export default function SettingsScreen() {
 
       {!isPasscodeSet ? (
         <TouchableOpacity
-          style={[styles.menuItem, { borderBottomColor: isDark ? '#333' : '#e0e0e0' }]}
+          style={[styles.menuItem, { borderBottomColor: colors.divider }]}
           onPress={() => setShowPasscodeSetup(true)}
         >
           <View style={styles.menuTextGroup}>
             <Text style={[styles.menuTitle, { color: colors.text }]}>Set Up Passcode</Text>
-            <Text style={[styles.menuSubtitle, { color: colors.text }]}>Protect your app with a 4-digit PIN</Text>
+            <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Protect your app with a 4-digit PIN</Text>
           </View>
         </TouchableOpacity>
       ) : (
         <>
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: isDark ? '#333' : '#e0e0e0' }]}
+            style={[styles.menuItem, { borderBottomColor: colors.divider }]}
             onPress={() => setShowChangePasscode(true)}
           >
             <View style={styles.menuTextGroup}>
               <Text style={[styles.menuTitle, { color: colors.text }]}>Change Passcode</Text>
-              <Text style={[styles.menuSubtitle, { color: colors.text }]}>Set a new 4-digit PIN</Text>
+              <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Set a new 4-digit PIN</Text>
             </View>
           </TouchableOpacity>
 
           {hasBiometricHardware && (
-            <View style={[styles.menuItem, { borderBottomColor: isDark ? '#333' : '#e0e0e0' }]}>
+            <View style={[styles.menuItem, { borderBottomColor: colors.divider }]}>
               <View style={styles.menuRow}>
                 <View style={styles.menuTextGroup}>
                   <Text style={[styles.menuTitle, { color: colors.text }]}>Fingerprint Unlock</Text>
-                  <Text style={[styles.menuSubtitle, { color: colors.text }]}>Use fingerprint to unlock app</Text>
+                  <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Use fingerprint to unlock app</Text>
                 </View>
                 <Switch
                   value={isBiometricEnabled}
                   onValueChange={handleBiometricToggle}
-                  trackColor={{ false: '#767577', true: '#2f95dc' }}
+                  trackColor={{ false: '#767577', true: colors.accent }}
                   thumbColor={isBiometricEnabled ? '#fff' : '#f4f3f4'}
                 />
               </View>
@@ -202,22 +202,22 @@ export default function SettingsScreen() {
           )}
 
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: isDark ? '#333' : '#e0e0e0' }]}
+            style={[styles.menuItem, { borderBottomColor: colors.divider }]}
             onPress={handleTimeoutPress}
           >
             <View style={styles.menuTextGroup}>
               <Text style={[styles.menuTitle, { color: colors.text }]}>Auto-Lock</Text>
-              <Text style={[styles.menuSubtitle, { color: colors.text }]}>{currentTimeoutLabel}</Text>
+              <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>{currentTimeoutLabel}</Text>
             </View>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: isDark ? '#333' : '#e0e0e0' }]}
+            style={[styles.menuItem, { borderBottomColor: colors.divider }]}
             onPress={() => setShowVerifyForRemove(true)}
           >
             <View style={styles.menuTextGroup}>
-              <Text style={[styles.menuTitle, { color: '#e74c3c' }]}>Remove Passcode</Text>
-              <Text style={[styles.menuSubtitle, { color: colors.text }]}>Disable app lock</Text>
+              <Text style={[styles.menuTitle, { color: colors.expense }]}>Remove Passcode</Text>
+              <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Disable app lock</Text>
             </View>
           </TouchableOpacity>
         </>
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
   },
   menuTextGroup: { flex: 1 },
   menuTitle: { fontSize: 16, fontWeight: '500' },
-  menuSubtitle: { fontSize: 13, opacity: 0.6, marginTop: 2 },
-  footer: { padding: 24, alignItems: 'center' },
-  footerText: { fontSize: 12, opacity: 0.4 },
+  menuSubtitle: { fontSize: 13, marginTop: 2 },
+  footer: { padding: 32, alignItems: 'center' },
+  footerText: { fontSize: 12, opacity: 0.3 },
 });

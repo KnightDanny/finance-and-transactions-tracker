@@ -204,3 +204,72 @@ export async function getMonthlySpendingByCategory(db: Database, month: string) 
     )
     .groupBy(transactions.categoryId);
 }
+
+export async function getSpendingSummary(
+  db: Database,
+  startDate: string,
+  endDate: string
+): Promise<{ totalIncome: number; totalExpense: number; incomeCount: number; expenseCount: number }> {
+  const incomeResult = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.type, 'credit'),
+        gte(transactions.date, startDate),
+        lte(transactions.date, endDate)
+      )
+    );
+
+  const expenseResult = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.type, 'debit'),
+        gte(transactions.date, startDate),
+        lte(transactions.date, endDate)
+      )
+    );
+
+  return {
+    totalIncome: incomeResult[0]?.total ?? 0,
+    totalExpense: expenseResult[0]?.total ?? 0,
+    incomeCount: incomeResult[0]?.count ?? 0,
+    expenseCount: expenseResult[0]?.count ?? 0,
+  };
+}
+
+export async function getSpendingByCategory(
+  db: Database,
+  startDate: string,
+  endDate: string
+): Promise<Array<{ categoryId: string | null; categoryName: string; categoryIcon: string | null; total: number; count: number }>> {
+  const rows = await db
+    .select({
+      categoryId: transactions.categoryId,
+      categoryName: sql<string>`COALESCE(${categories.name}, 'Uncategorized')`,
+      categoryIcon: categories.icon,
+      total: sql<number>`SUM(${transactions.amount})`,
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(transactions)
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .where(
+      and(
+        eq(transactions.type, 'debit'),
+        gte(transactions.date, startDate),
+        lte(transactions.date, endDate)
+      )
+    )
+    .groupBy(transactions.categoryId)
+    .orderBy(sql`SUM(${transactions.amount}) DESC`);
+
+  return rows;
+}

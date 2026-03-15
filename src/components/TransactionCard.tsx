@@ -40,8 +40,10 @@ export function TransactionCard({ transaction }: Props) {
     ? `${transaction.categoryIcon} ${transaction.categoryName}`
     : transaction.categoryName || null;
 
+  const amountColor = isCredit ? colors.income : colors.expense;
+
   return (
-    <View style={[styles.card, { backgroundColor: isDark ? '#1e1e1e' : '#fff' }]}>
+    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
       <View style={styles.left}>
         <Image source={config.logo} style={styles.bankLogo} resizeMode="contain" />
         <View style={styles.info}>
@@ -49,21 +51,21 @@ export function TransactionCard({ transaction }: Props) {
             {transaction.counterparty || (isCredit ? 'Received' : 'Sent')}
           </Text>
           <View style={styles.metaRow}>
-            <Text style={[styles.date, { color: colors.text }]}>{transaction.date}</Text>
+            <Text style={[styles.date, { color: colors.textSecondary }]}>{transaction.date}</Text>
             {accountDisplay ? (
-              <Text style={[styles.accountTag, { color: colors.text }]}>{accountDisplay}</Text>
+              <Text style={[styles.accountTag, { color: colors.textSecondary }]}>{accountDisplay}</Text>
             ) : null}
           </View>
           {categoryLabel && (
-            <View style={[styles.categoryBadge, { backgroundColor: isDark ? '#2a2a2a' : '#f0f0f0' }]}>
-              <Text style={[styles.categoryText, { color: isDark ? '#aaa' : '#555' }]}>{categoryLabel}</Text>
+            <View style={[styles.categoryBadge, { backgroundColor: colors.surfaceVariant }]}>
+              <Text style={[styles.categoryText, { color: colors.textSecondary }]}>{categoryLabel}</Text>
             </View>
           )}
         </View>
       </View>
       <View style={styles.right}>
-        <Text style={[styles.amount, { color: isCredit ? '#27ae60' : '#e74c3c' }]}>
-          {isCredit ? '+' : '-'} {formatCurrency(transaction.amount)}
+        <Text style={[styles.amount, { color: amountColor }]}>
+          {isCredit ? '+' : '-'}{formatCurrency(transaction.amount)}
         </Text>
         {transaction.note ? (
           <TouchableOpacity
@@ -75,13 +77,12 @@ export function TransactionCard({ transaction }: Props) {
         ) : null}
       </View>
 
-      {/* Note popup */}
       <Modal visible={showNote} transparent animationType="fade" onRequestClose={() => setShowNote(false)}>
         <Pressable style={styles.overlay} onPress={() => setShowNote(false)}>
-          <View style={[styles.popup, { backgroundColor: isDark ? '#2a2a2a' : '#fff' }]}>
+          <View style={[styles.popup, { backgroundColor: colors.surface }]}>
             <Text style={[styles.popupTitle, { color: colors.text }]}>Note</Text>
             <Text style={[styles.popupText, { color: colors.text }]}>{transaction.note}</Text>
-            <TouchableOpacity style={styles.popupClose} onPress={() => setShowNote(false)}>
+            <TouchableOpacity style={[styles.popupClose, { backgroundColor: colors.accent }]} onPress={() => setShowNote(false)}>
               <Text style={styles.popupCloseText}>Close</Text>
             </TouchableOpacity>
           </View>
@@ -96,57 +97,52 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 1,
-    borderRadius: 8,
-    marginHorizontal: 4,
-    marginVertical: 2,
+    paddingVertical: 13,
+    paddingHorizontal: 15,
+    borderRadius: 15,
+    marginHorizontal: 6,
+    marginVertical: 3,
+    borderWidth: 1,
   },
   left: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  bankLogo: { width: 32, height: 32, borderRadius: 6, marginRight: 12 },
+  bankLogo: { width: 32, height: 32, borderRadius: 8, marginRight: 12 },
   info: { flex: 1 },
   counterparty: { fontSize: 15, fontWeight: '500' },
-  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 8 },
-  date: { fontSize: 12, opacity: 0.5 },
-  accountTag: { fontSize: 11, opacity: 0.4 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3, gap: 8 },
+  date: { fontSize: 12 },
+  accountTag: { fontSize: 11 },
   categoryBadge: {
     alignSelf: 'flex-start',
-    marginTop: 4,
+    marginTop: 5,
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 10,
   },
   categoryText: { fontSize: 11 },
   right: { alignItems: 'flex-end', gap: 4 },
-  amount: { fontSize: 15, fontWeight: '600' },
+  amount: { fontSize: 16, fontWeight: '700' },
   noteIcon: { fontSize: 14 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    padding: 24,
   },
   popup: {
     width: '100%',
-    borderRadius: 12,
-    padding: 20,
+    borderRadius: 20,
+    padding: 24,
     elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
   },
-  popupTitle: { fontSize: 16, fontWeight: '600', marginBottom: 8 },
-  popupText: { fontSize: 14, lineHeight: 20, opacity: 0.8 },
+  popupTitle: { fontSize: 18, fontWeight: '700', marginBottom: 10 },
+  popupText: { fontSize: 15, lineHeight: 22, opacity: 0.8 },
   popupClose: {
-    marginTop: 16,
+    marginTop: 20,
     alignSelf: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#2f95dc',
-    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 15,
   },
-  popupCloseText: { color: '#fff', fontSize: 14, fontWeight: '500' },
+  popupCloseText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });
