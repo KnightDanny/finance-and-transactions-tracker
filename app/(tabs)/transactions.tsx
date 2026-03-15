@@ -38,20 +38,28 @@ export default function TransactionsScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Filter Chips */}
       <View style={styles.filterRow}>
-        {(['all', 'credit', 'debit'] as const).map((f) => (
-          <TouchableOpacity
-            key={f}
-            style={[
-              styles.filterChip,
-              filter === f && { backgroundColor: colors.tint },
-            ]}
-            onPress={() => setFilter(f)}
-          >
-            <Text style={[styles.filterText, filter === f && { color: '#fff' }]}>
-              {f === 'all' ? 'All' : f === 'credit' ? 'Income' : 'Expense'}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {(['all', 'credit', 'debit'] as const).map((f) => {
+          const isActive = filter === f;
+          return (
+            <TouchableOpacity
+              key={f}
+              style={[
+                styles.filterChip,
+                { backgroundColor: isActive
+                    ? '#2f95dc'
+                    : colorScheme === 'dark' ? '#333' : '#e0e0e0' },
+              ]}
+              onPress={() => setFilter(f)}
+            >
+              <Text style={[
+                styles.filterText,
+                { color: isActive ? '#fff' : colors.text },
+              ]}>
+                {f === 'all' ? 'All' : f === 'credit' ? 'Income' : 'Expense'}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       <FlatList
@@ -73,7 +81,7 @@ export default function TransactionsScreen() {
 
       {/* FAB for manual entry */}
       <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.tint }]}
+        style={[styles.fab, { backgroundColor: '#2f95dc' }]}
         onPress={() => router.push('/transaction/add' as any)}
       >
         <Text style={styles.fabText}>+</Text>

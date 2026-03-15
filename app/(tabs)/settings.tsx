@@ -18,8 +18,7 @@ export default function SettingsScreen() {
     setSyncStatus('Syncing...');
 
     try {
-      // Use mock data for development; set to false when native module is ready
-      const result = await syncSms(db, true);
+      const result = await syncSms(db);
       setSyncStatus(
         `Synced: ${result.newTransactions} new, ${result.skippedDuplicates} skipped` +
         (result.gaps > 0 ? `, ${result.gaps} balance gaps detected` : '') +
@@ -40,39 +39,16 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleSyncReal = async () => {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    setSyncStatus('Syncing real SMS...');
-
-    try {
-      const result = await syncSms(db, false);
-      setSyncStatus(
-        `Synced: ${result.newTransactions} new, ${result.skippedDuplicates} skipped` +
-        (result.gaps > 0 ? `, ${result.gaps} balance gaps` : '')
-      );
-    } catch (e: any) {
-      setSyncStatus(`Sync failed: ${e.message}`);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   const handleBackup = () => {
     Alert.alert('Backup', 'Google Drive backup coming soon.');
   };
 
   const menuItems = [
     {
-      title: 'Sync SMS (Mock Data)',
+      title: 'Sync SMS',
       subtitle: isSyncing ? 'Syncing...' : syncStatus,
       onPress: handleSyncSms,
       showSpinner: isSyncing,
-    },
-    {
-      title: 'Sync SMS (Real)',
-      subtitle: 'Requires custom dev build with SMS permission',
-      onPress: handleSyncReal,
     },
     { title: 'Backup to Google Drive', subtitle: 'Not configured', onPress: handleBackup },
     { title: 'Restore from Backup', subtitle: 'Restore data from Google Drive', onPress: handleBackup },

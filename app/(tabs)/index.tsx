@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity, RefreshControl } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useState, useCallback, useLayoutEffect } from 'react';
+import { StyleSheet, ScrollView, View, Text, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
+import { useRouter, useNavigation } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
 import { getAllAccounts, getTotalNetWorth } from '@/src/db/repository/accounts';
 import { getRecentTransactions } from '@/src/db/repository/transactions';
@@ -8,12 +8,15 @@ import { TransactionCard } from '@/src/components/TransactionCard';
 import { BalanceCard } from '@/src/components/BalanceCard';
 import { ReconciliationBanner } from '@/src/components/ReconciliationBanner';
 import { getUnresolvedGaps } from '@/src/reconciliation/engine';
+import { syncSms } from '@/src/sms/sync';
+import { SymbolView } from 'expo-symbols';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 
 export default function DashboardScreen() {
   const db = useDatabase();
   const router = useRouter();
+  const navigation = useNavigation();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
   const [netWorth, setNetWorth] = useState(0);
@@ -21,6 +24,7 @@ export default function DashboardScreen() {
   const [recentTxns, setRecentTxns] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [gapCount, setGapCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const loadData = useCallback(async () => {
     const [nw, accs, txns, gaps] = await Promise.all([
@@ -35,9 +39,45 @@ export default function DashboardScreen() {
     setGapCount(gaps.length);
   }, [db]);
 
+  const handleSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const result = await syncSms(db);
+      await loadData();
+      if (result.gaps > 0) {
+        Alert.alert(
+          'Balance Gaps Detected',
+          `${result.gaps} balance discrepancies found. Go to reconciliation to review.`
+        );
+      }
+    } catch (e: any) {
+      Alert.alert('Sync Failed', e.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [db, isSyncing, loadData]);
+
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () =>
+        isSyncing ? (
+          <ActivityIndicator size="small" color={colors.tint} style={{ marginRight: 16 }} />
+        ) : (
+          <TouchableOpacity onPress={handleSync} style={{ marginRight: 16 }}>
+            <SymbolView
+              name={{ ios: 'arrow.trianglehead.2.clockwise', android: 'sync', web: 'sync' }}
+              tintColor={colors.tint}
+              size={24}
+            />
+          </TouchableOpacity>
+        ),
+    });
+  }, [navigation, isSyncing, handleSync, colors.tint]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

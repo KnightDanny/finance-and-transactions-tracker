@@ -2,7 +2,8 @@ import { BankParser, ParsedTransaction, RawSms } from './types';
 import { CbeParser } from './parsers/cbe';
 import { TeleBirrParser } from './parsers/telebirr';
 
-const parsers: BankParser[] = [new CbeParser(), new TeleBirrParser()];
+// TeleBirr first — its SMS mentions "Commercial Bank of Ethiopia" which would false-match CBE
+const parsers: BankParser[] = [new TeleBirrParser(), new CbeParser()];
 
 /**
  * Try to parse an SMS using all registered bank parsers.

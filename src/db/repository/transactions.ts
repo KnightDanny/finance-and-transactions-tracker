@@ -1,6 +1,6 @@
 import { eq, and, desc, gte, lte, sql } from 'drizzle-orm';
 import { generateId as uuid } from '@/src/utils/id';
-import { transactions } from '../schema';
+import { transactions, accounts } from '../schema';
 
 type Database = any;
 
@@ -64,11 +64,28 @@ export async function getTransactionById(db: Database, id: string) {
 }
 
 export async function getRecentTransactions(db: Database, limit = 10) {
-  return db
-    .select()
+  const rows = await db
+    .select({
+      id: transactions.id,
+      accountId: transactions.accountId,
+      type: transactions.type,
+      amount: transactions.amount,
+      totalAmount: transactions.totalAmount,
+      balanceAfter: transactions.balanceAfter,
+      counterparty: transactions.counterparty,
+      referenceNo: transactions.referenceNo,
+      date: transactions.date,
+      source: transactions.source,
+      smsTimestamp: transactions.smsTimestamp,
+      bank: accounts.bank,
+      accountNumber: accounts.accountNumber,
+      accountLabel: accounts.label,
+    })
     .from(transactions)
+    .leftJoin(accounts, eq(transactions.accountId, accounts.id))
     .orderBy(desc(transactions.date), desc(transactions.smsTimestamp))
     .limit(limit);
+  return rows;
 }
 
 export async function getTransactionsByAccount(db: Database, accountId: string, limit = 50) {
@@ -99,7 +116,27 @@ export async function getTransactionsFiltered(
   if (filters.startDate) conditions.push(gte(transactions.date, filters.startDate));
   if (filters.endDate) conditions.push(lte(transactions.date, filters.endDate));
 
-  let query = db.select().from(transactions);
+  let query = db
+    .select({
+      id: transactions.id,
+      accountId: transactions.accountId,
+      type: transactions.type,
+      amount: transactions.amount,
+      totalAmount: transactions.totalAmount,
+      balanceAfter: transactions.balanceAfter,
+      counterparty: transactions.counterparty,
+      referenceNo: transactions.referenceNo,
+      categoryId: transactions.categoryId,
+      date: transactions.date,
+      source: transactions.source,
+      smsTimestamp: transactions.smsTimestamp,
+      note: transactions.note,
+      bank: accounts.bank,
+      accountNumber: accounts.accountNumber,
+      accountLabel: accounts.label,
+    })
+    .from(transactions)
+    .leftJoin(accounts, eq(transactions.accountId, accounts.id));
 
   if (conditions.length > 0) {
     query = query.where(and(...conditions));
@@ -110,7 +147,7 @@ export async function getTransactionsFiltered(
     .limit(filters.limit ?? 50);
 }
 
-export async function getPreviousTransaction(db: Database, accountId: string, beforeDate: string, beforeTimestamp?: number) {
+export async function getPreviousTransaction(db: Database, accountId: string, beforeDate: string, excludeId: string) {
   const results = await db
     .select()
     .from(transactions)
@@ -124,11 +161,7 @@ export async function getPreviousTransaction(db: Database, accountId: string, be
     .limit(2);
 
   // Return the most recent transaction that isn't the current one
-  // If beforeTimestamp is provided, skip the one with that exact timestamp
-  if (beforeTimestamp) {
-    return results.find((t: any) => t.smsTimestamp !== beforeTimestamp) ?? null;
-  }
-  return results[0] ?? null;
+  return results.find((t: any) => t.id !== excludeId) ?? null;
 }
 
 export async function updateTransactionCategory(db: Database, id: string, categoryId: string) {

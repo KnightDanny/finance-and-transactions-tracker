@@ -8,10 +8,10 @@ export class CbeParser implements BankParser {
   canParse(smsBody: string, senderAddress: string): boolean {
     const lowerAddr = senderAddress.toLowerCase();
     const lowerBody = smsBody.toLowerCase();
+    // Don't match on "commercial bank of ethiopia" — TeleBirr SMS mentions it in transfers
     return (
       lowerAddr.includes('cbe') ||
-      lowerBody.includes('banking with cbe') ||
-      lowerBody.includes('commercial bank of ethiopia')
+      lowerBody.includes('banking with cbe')
     );
   }
 
@@ -40,52 +40,77 @@ export class CbeParser implements BankParser {
     // First ETB amount is the principal
     const amount = allAmounts[0];
 
-    // Extract total amount for debits ("total of ETB X")
-    let totalAmount: number | undefined;
-    if (type === 'debit') {
-      totalAmount = extractAmountAfterKeyword(body, 'total of') ?? undefined;
-    }
-
-    // Extract charges
+    // Extract charges — multiple formats:
+    // Format 1: "S.charge of ETB X" or "service charge of ETB X"
+    // Format 2: "Service charge ETB X" (no "of")
+    // Format 3: "including Service charge ETB X"
     const serviceCharge =
       extractAmountAfterKeyword(body, 's.charge') ??
       extractAmountAfterKeyword(body, 'service charge');
+
+    // VAT — "VAT of ETB X" or "VAT(15%) of ETB X" or "VAT(15%) ETB X"
     const vat = extractAmountAfterKeyword(body, 'vat');
+
+    // Disaster Fund
     const disasterFund = extractAmountAfterKeyword(body, 'disaster fund');
 
-    // Extract account number (masked format: 1*****0000)
-    const accountMatch = body.match(/\d\*{3,}\d{2,}/);
-    const accountNumber = accountMatch ? accountMatch[0] : 'unknown';
+    // Extract total amount for debits:
+    // 1. Try "total of ETB X" from SMS
+    // 2. Fallback: compute from amount + individual fees
+    let totalAmount: number | undefined;
+    if (type === 'debit') {
+      totalAmount = extractAmountAfterKeyword(body, 'total of') ?? undefined;
+      if (!totalAmount) {
+        totalAmount = amount + (serviceCharge ?? 0) + (vat ?? 0) + (disasterFund ?? 0);
+      }
+    }
+
+    // Extract account number — various masking patterns:
+    // 1*********0000, 1****1111, 1********1111
+    // Normalize: collapse any run of * to *** so all variants match the same account
+    const accountMatch = body.match(/\d\*{2,}\d{2,}/);
+    if (!accountMatch) return null; // Can't identify account
+    const accountNumber = accountMatch[0].replace(/\*+/, '***');
 
     // Extract counterparty
     let counterparty: string | undefined;
     if (type === 'credit') {
-      // "from Abebe Kebede," or "from Abebe Kebede on"
+      // "from Abebe Kebede," or "from Abebe Kebede on" or "from Mr Zufan,"
       const fromMatch = body.match(/from\s+([^,]+?)(?:\s*,|\s+on\s+\d)/i);
       if (fromMatch) counterparty = fromMatch[1].trim();
     } else {
-      // "to Chaltu Bekele on" or "transfered ETB ... to Name on"
+      // "to Chaltu Bekele on" — transfer to person
       const toMatch = body.match(/to\s+([^(]+?)(?:\s+on\s+\d|\s*\()/i);
       if (toMatch) {
         counterparty = toMatch[1].trim();
         // Clean up: remove "ETB X,XXX.XX" if it snuck in
-        counterparty = counterparty.replace(/ETB\s?[\d,]+\.\d{2}/i, '').trim();
+        counterparty = counterparty.replace(/ETB\s?[\d,]+(?:\.\d{0,2})?/gi, '').trim();
       }
     }
 
-    // Extract reference number
+    // Extract reference number — multiple sources:
     let referenceNo: string | undefined;
+    // 1. "Ref No FTXXXXX"
     const refMatch = body.match(/Ref\s+No\s+(\w+)/i);
     if (refMatch) {
       referenceNo = refMatch[1];
     } else {
-      // Try to extract from URL
-      const urlMatch = body.match(/id=(\w+)/);
-      if (urlMatch) referenceNo = urlMatch[1];
+      // 2. URL with ?id=XXXXX
+      const urlIdMatch = body.match(/[?&]id=(\w+)/);
+      if (urlIdMatch) {
+        referenceNo = urlIdMatch[1];
+      } else {
+        // 3. URL path: BranchReceipt/FT00000TZT77&...
+        const urlPathMatch = body.match(/\/(FT\w+)/);
+        if (urlPathMatch) referenceNo = urlPathMatch[1];
+      }
     }
 
-    // Extract date
-    const date = extractDateFromText(body);
+    // Extract date — fall back to SMS timestamp if no date in body
+    let date = extractDateFromText(body);
+    if (!date && sms.date) {
+      date = new Date(sms.date).toISOString().split('T')[0];
+    }
     if (!date) return null;
 
     return {

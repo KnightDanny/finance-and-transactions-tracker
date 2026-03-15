@@ -12,13 +12,23 @@ interface Props {
     counterparty?: string;
     date: string;
     source: string;
+    bank?: string;
+    accountNumber?: string;
+    accountLabel?: string;
   };
+}
+
+function getAccountTag(bank?: string, accountNumber?: string, accountLabel?: string): string {
+  if (!bank) return '';
+  const label = accountLabel || (accountNumber ? `...${accountNumber.slice(-4)}` : '');
+  return `${bank} ${label}`.trim();
 }
 
 export function TransactionCard({ transaction }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
   const isCredit = transaction.type === 'credit';
+  const accountTag = getAccountTag(transaction.bank, transaction.accountNumber, transaction.accountLabel);
 
   return (
     <View style={[styles.card, { backgroundColor: colorScheme === 'dark' ? '#1e1e1e' : '#fff' }]}>
@@ -28,7 +38,12 @@ export function TransactionCard({ transaction }: Props) {
           <Text style={[styles.counterparty, { color: colors.text }]} numberOfLines={1}>
             {transaction.counterparty || (isCredit ? 'Received' : 'Sent')}
           </Text>
-          <Text style={[styles.date, { color: colors.text }]}>{transaction.date}</Text>
+          <View style={styles.metaRow}>
+            <Text style={[styles.date, { color: colors.text }]}>{transaction.date}</Text>
+            {accountTag ? (
+              <Text style={[styles.accountTag, { color: colors.text }]}>{accountTag}</Text>
+            ) : null}
+          </View>
         </View>
       </View>
       <Text style={[styles.amount, { color: isCredit ? '#27ae60' : '#e74c3c' }]}>
@@ -54,6 +69,8 @@ const styles = StyleSheet.create({
   indicator: { width: 4, height: 32, borderRadius: 2, marginRight: 12 },
   info: { flex: 1 },
   counterparty: { fontSize: 15, fontWeight: '500' },
-  date: { fontSize: 12, opacity: 0.5, marginTop: 2 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 8 },
+  date: { fontSize: 12, opacity: 0.5 },
+  accountTag: { fontSize: 11, opacity: 0.4 },
   amount: { fontSize: 15, fontWeight: '600' },
 });

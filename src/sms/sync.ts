@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { parseSms, isFromKnownBank } from './dispatcher';
 import { readSmsInbox, getMockSmsData } from './reader';
 import { RawSms } from './types';
-import { upsertAccount } from '@/src/db/repository/accounts';
+import { upsertAccount, getAccountsByBank } from '@/src/db/repository/accounts';
 import { insertTransaction } from '@/src/db/repository/transactions';
 import { insertBalanceSnapshot } from '@/src/db/repository/balanceSnapshots';
 import { checkReconciliation } from '@/src/reconciliation/engine';
@@ -65,10 +65,25 @@ export async function syncSms(db: any, useMockData: boolean = false): Promise<Sy
       continue;
     }
 
+    // Resolve account number — if parser couldn't extract it, look up existing account for this bank
+    let accountNumber: string;
+    if (parsed.accountNumber) {
+      accountNumber = parsed.accountNumber;
+    } else {
+      const bankAccounts = await getAccountsByBank(db, parsed.bank);
+      if (bankAccounts.length === 1) {
+        accountNumber = bankAccounts[0].accountNumber;
+      } else {
+        // Can't determine which account — skip this SMS
+        result.parseErrors++;
+        continue;
+      }
+    }
+
     // Upsert account
     const accountId = await upsertAccount(db, {
       bank: parsed.bank,
-      accountNumber: parsed.accountNumber,
+      accountNumber,
       latestBalance: parsed.balanceAfter,
       latestBalanceAt: parsed.date,
     });

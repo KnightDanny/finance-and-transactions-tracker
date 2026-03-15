@@ -1,9 +1,10 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { generateId as uuid } from '@/src/utils/id';
-import { reconciliationGaps } from '@/src/db/schema';
+import { reconciliationGaps, accounts } from '@/src/db/schema';
 import { getPreviousTransaction } from '@/src/db/repository/transactions';
 
-const TOLERANCE = 0.05; // ETB tolerance for floating-point comparison
+// Minimal tolerance for floating-point rounding only
+const TOLERANCE = 0.01;
 
 interface TransactionInfo {
   id: string;
@@ -20,7 +21,8 @@ interface TransactionInfo {
  * Check if a newly inserted transaction creates a balance gap
  * compared to the previous transaction for the same account.
  *
- * Returns the gap record if one is detected, null otherwise.
+ * Logic: previous_balance ± transaction_total should equal current_balance.
+ * If not, there's a missing transaction between the two.
  */
 export async function checkReconciliation(
   db: any,
@@ -28,12 +30,12 @@ export async function checkReconciliation(
 ): Promise<any | null> {
   if (newTx.balanceAfter == null) return null;
 
-  // Find the previous transaction for this account
+  // Find the previous transaction for this specific account
   const prevTx = await getPreviousTransaction(
     db,
     newTx.accountId,
     newTx.date,
-    newTx.smsTimestamp
+    newTx.id
   );
 
   if (!prevTx || prevTx.balanceAfter == null) {
@@ -55,7 +57,7 @@ export async function checkReconciliation(
   const gap = actualBalance - expectedBalance;
 
   if (Math.abs(gap) > TOLERANCE) {
-    // Gap detected — insert record
+    // Gap detected — insert record with the transaction date (not today)
     const gapId = uuid();
     await db.insert(reconciliationGaps).values({
       id: gapId,
@@ -63,7 +65,7 @@ export async function checkReconciliation(
       expectedBalance,
       actualBalance,
       gapAmount: gap,
-      detectedAt: new Date().toISOString(),
+      detectedAt: newTx.date,
       resolved: false,
       transactionBeforeId: prevTx.id,
       transactionAfterId: newTx.id,
@@ -81,13 +83,27 @@ export async function checkReconciliation(
 }
 
 /**
- * Get all unresolved reconciliation gaps.
+ * Get all unresolved reconciliation gaps with account info.
  */
 export async function getUnresolvedGaps(db: any) {
   return db
-    .select()
+    .select({
+      id: reconciliationGaps.id,
+      accountId: reconciliationGaps.accountId,
+      expectedBalance: reconciliationGaps.expectedBalance,
+      actualBalance: reconciliationGaps.actualBalance,
+      gapAmount: reconciliationGaps.gapAmount,
+      detectedAt: reconciliationGaps.detectedAt,
+      resolved: reconciliationGaps.resolved,
+      transactionBeforeId: reconciliationGaps.transactionBeforeId,
+      transactionAfterId: reconciliationGaps.transactionAfterId,
+      bank: accounts.bank,
+      accountNumber: accounts.accountNumber,
+    })
     .from(reconciliationGaps)
-    .where(eq(reconciliationGaps.resolved, false));
+    .leftJoin(accounts, eq(reconciliationGaps.accountId, accounts.id))
+    .where(eq(reconciliationGaps.resolved, false))
+    .orderBy(desc(reconciliationGaps.detectedAt));
 }
 
 /**
@@ -101,4 +117,24 @@ export async function resolveGap(db: any, gapId: string, resolvedTransactionId: 
       resolvedTransactionId: resolvedTransactionId,
     })
     .where(eq(reconciliationGaps.id, gapId));
+}
+
+/**
+ * Skip a single gap — mark as resolved without a filling transaction (unaccounted).
+ */
+export async function skipGap(db: any, gapId: string) {
+  await db
+    .update(reconciliationGaps)
+    .set({ resolved: true })
+    .where(eq(reconciliationGaps.id, gapId));
+}
+
+/**
+ * Skip all unresolved gaps at once.
+ */
+export async function skipAllGaps(db: any) {
+  await db
+    .update(reconciliationGaps)
+    .set({ resolved: true })
+    .where(eq(reconciliationGaps.resolved, false));
 }

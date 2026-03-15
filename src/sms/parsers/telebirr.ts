@@ -15,17 +15,47 @@ export class TeleBirrParser implements BankParser {
     const body = sms.body;
     const lowerBody = body.toLowerCase();
 
-    // Determine transaction type
+    // Skip non-transaction messages
+    if (lowerBody.includes('verification code') || lowerBody.includes('insufficient balance')) {
+      return null;
+    }
+
+    // Determine transaction type — order matters:
+    // "paid" = debit (purchases, packages, bills)
+    // "transferred" = debit (person-to-person or to bank)
+    // "received" / "credited" = credit
+    // "deposited" to saving = debit from e-money (skip — internal transfer)
+    // "withdraw" from saving = credit to e-money (skip — internal transfer)
+    // "recharged" = debit (airtime)
     let type: 'credit' | 'debit';
+
+    // Skip savings operations (internal transfers, not real transactions)
+    if (lowerBody.includes('deposited') && lowerBody.includes('saving')) {
+      return null;
+    }
+    if (lowerBody.includes('withdraw') && lowerBody.includes('saving')) {
+      return null;
+    }
+
     if (lowerBody.includes('received') || lowerBody.includes('credited')) {
       type = 'credit';
-    } else if (lowerBody.includes('transferred') || lowerBody.includes('transfered') || lowerBody.includes('debited')) {
+    } else if (
+      lowerBody.includes('transferred') ||
+      lowerBody.includes('transfered') ||
+      lowerBody.includes('debited') ||
+      lowerBody.includes('you have paid') ||
+      lowerBody.includes('recharged')
+    ) {
       type = 'debit';
     } else {
       return null;
     }
 
-    // Extract balance
+    // Extract balance — multiple patterns:
+    // "current balance is ETB X"
+    // "current E-Money Account balance is ETB X"
+    // "current telebirr balance is ETB X"
+    // "current telebirr Account balance is ETB X"
     const balanceAfter = extractBalance(body);
     if (balanceAfter === null) return null;
 
@@ -35,7 +65,7 @@ export class TeleBirrParser implements BankParser {
 
     const amount = allAmounts[0];
 
-    // Extract service fee and VAT
+    // Extract service fee and VAT (only for transfers, not purchases)
     const serviceCharge = extractAmountAfterKeyword(body, 'service fee');
     const vat = extractAmountAfterKeyword(body, 'vat on the service fee');
 
@@ -46,53 +76,87 @@ export class TeleBirrParser implements BankParser {
     }
 
     // Extract account number (TeleBirr uses 251XXXXXXXXX format)
-    let accountNumber = 'unknown';
-    const fullAccountMatch = body.match(/(?:telebirr\s+account|your\s+telebirr\s+Account)\s+(251\d{9,})/i);
+    // Try explicit "telebirr account XXXX" or "telebirr Account XXXX"
+    let accountNumber: string | undefined;
+    const fullAccountMatch = body.match(/telebirr\s+Account\s+(251\d{9,})/i);
     if (fullAccountMatch) {
       accountNumber = fullAccountMatch[1];
     } else {
-      // Try any 251 number
-      const anyMatch = body.match(/251\d{9}/);
-      if (anyMatch) accountNumber = anyMatch[0];
+      // Try "your telebirr account XXXX"
+      const yourMatch = body.match(/your\s+telebirr\s+account\s+(251\d{9,})/i);
+      if (yourMatch) accountNumber = yourMatch[1];
     }
+    // Person-to-person transfers and payments don't include sender account
+    // sync.ts will look up the existing TeleBirr account
 
     // Extract counterparty
     let counterparty: string | undefined;
     if (type === 'credit') {
-      // "from Commercial Bank of Ethiopia to your telebirr"
-      const fromMatch = body.match(/from\s+(.+?)\s+to\s+your/i);
-      if (fromMatch) counterparty = fromMatch[1].trim();
-    } else {
-      // "to Tigist Alemu (2519****0000)" or "to Commercial Bank of Ethiopia account"
-      const toMatch = body.match(/(?:transferred|transfered)\s+ETB\s?[\d,]+\.\d{2}\s+(?:successfully\s+)?(?:from\s+.+?\s+)?to\s+(.+?)(?:\s+on\s+\d|\s+account\s+number)/i);
-      if (toMatch) {
-        counterparty = toMatch[1].trim();
+      // Format 1: "from Commercial Bank of Ethiopia to your telebirr"
+      const fromBankMatch = body.match(/from\s+(.+?)\s+to\s+your/i);
+      if (fromBankMatch) {
+        counterparty = fromBankMatch[1].trim();
       } else {
-        // Simpler pattern: "to Name (phone)" or "to Name on"
-        const simpleToMatch = body.match(/to\s+([^(]+?)(?:\s*\(|\s+on\s+\d)/i);
-        if (simpleToMatch) {
-          counterparty = simpleToMatch[1].trim();
-          // Clean up ETB amounts that might have been captured
-          counterparty = counterparty.replace(/ETB\s?[\d,]+\.\d{2}/gi, '').trim();
-          // Remove "successfully from your telebirr account XXXX" if present
+        // Format 2: "from Dagmawi Wossen(2519****6565)" — person-to-person
+        const fromPersonMatch = body.match(/from\s+([^(]+?)(?:\s*\(|\s+on\s+\d)/i);
+        if (fromPersonMatch) counterparty = fromPersonMatch[1].trim();
+      }
+    } else {
+      // Debit counterparty extraction:
+      // Format 1: "transferred ETB X to Name (phone) on"
+      const toPersonMatch = body.match(/to\s+([^(]+?)(?:\s*\(|\s+on\s+\d)/i);
+      if (toPersonMatch) {
+        counterparty = toPersonMatch[1].trim();
+        // Clean up ETB amounts and "successfully from your telebirr account..."
+        counterparty = counterparty.replace(/ETB\s?[\d,]+(?:\.\d{0,2})?/gi, '').trim();
+        counterparty = counterparty.replace(/successfully\s+from\s+.*/i, '').trim();
+      }
+
+      // Format 2: "paid ETB X for goods purchased from XXXX - MERCHANT NAME on"
+      if (!counterparty) {
+        const merchantMatch = body.match(/purchased\s+from\s+\S+\s+-\s+(.+?)\s+on\s+\d/i);
+        if (merchantMatch) counterparty = merchantMatch[1].trim();
+      }
+
+      // Format 3: "paid ETB X for package PACKAGE_NAME purchase made for"
+      if (!counterparty) {
+        const packageMatch = body.match(/for\s+package\s+(.+?)\s+purchase\s+made/i);
+        if (packageMatch) counterparty = packageMatch[1].trim();
+      }
+
+      // Format 4: "transferred ETB X to BANK account number XXXX"
+      if (!counterparty) {
+        const toBankMatch = body.match(/to\s+(.+?)\s+account\s+number/i);
+        if (toBankMatch) {
+          counterparty = toBankMatch[1].trim();
+          counterparty = counterparty.replace(/ETB\s?[\d,]+(?:\.\d{0,2})?/gi, '').trim();
           counterparty = counterparty.replace(/successfully\s+from\s+.*/i, '').trim();
         }
+      }
+
+      // Format 5: "recharged ETB X airtime for PHONE"
+      if (!counterparty && lowerBody.includes('recharged')) {
+        counterparty = 'Airtime Recharge';
       }
     }
 
     // Extract reference number
     let referenceNo: string | undefined;
-    const txnMatch = body.match(/(?:transaction\s+number|telebirr\s+transaction\s+number)\s+is\s+(\w+)/i);
+    // "transaction number is XXXX" or "telebirr transaction number is XXXX"
+    const txnMatch = body.match(/transaction\s+number\s+is\s+(\w+)/i);
     if (txnMatch) {
       referenceNo = txnMatch[1];
     } else {
-      // Try: "by transaction number XXXX"
+      // "by transaction number XXXX"
       const byTxnMatch = body.match(/by\s+transaction\s+number\s+(\w+)/i);
       if (byTxnMatch) referenceNo = byTxnMatch[1];
     }
 
-    // Extract date
-    const date = extractDateFromText(body);
+    // Extract date — fall back to SMS timestamp if no date in body
+    let date = extractDateFromText(body);
+    if (!date && sms.date) {
+      date = new Date(sms.date).toISOString().split('T')[0];
+    }
     if (!date) return null;
 
     return {

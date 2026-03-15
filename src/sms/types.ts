@@ -15,7 +15,7 @@ export interface ParsedTransaction {
   vat?: number;
   disasterFund?: number;
   balanceAfter: number;
-  accountNumber: string;
+  accountNumber?: string;
   counterparty?: string;
   referenceNo?: string;
   date: string;             // ISO date YYYY-MM-DD

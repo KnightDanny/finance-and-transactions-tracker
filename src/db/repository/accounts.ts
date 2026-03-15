@@ -21,6 +21,10 @@ export async function getAccountByBankAndNumber(db: Database, bank: string, acco
   return results[0] ?? null;
 }
 
+export async function getAccountsByBank(db: Database, bank: string) {
+  return db.select().from(accounts).where(eq(accounts.bank, bank));
+}
+
 export async function upsertAccount(
   db: Database,
   data: {
