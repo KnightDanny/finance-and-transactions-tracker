@@ -1,6 +1,6 @@
-import { eq, and, desc, gte, lte, sql } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, sql, inArray } from 'drizzle-orm';
 import { generateId as uuid } from '@/src/utils/id';
-import { transactions, accounts } from '../schema';
+import { transactions, accounts, categories } from '../schema';
 
 type Database = any;
 
@@ -103,6 +103,7 @@ export async function getTransactionsFiltered(
     accountId?: string;
     type?: 'credit' | 'debit';
     categoryId?: string;
+    categoryIds?: string[];
     startDate?: string;
     endDate?: string;
     limit?: number;
@@ -112,7 +113,11 @@ export async function getTransactionsFiltered(
 
   if (filters.accountId) conditions.push(eq(transactions.accountId, filters.accountId));
   if (filters.type) conditions.push(eq(transactions.type, filters.type));
-  if (filters.categoryId) conditions.push(eq(transactions.categoryId, filters.categoryId));
+  if (filters.categoryIds && filters.categoryIds.length > 0) {
+    conditions.push(inArray(transactions.categoryId, filters.categoryIds));
+  } else if (filters.categoryId) {
+    conditions.push(eq(transactions.categoryId, filters.categoryId));
+  }
   if (filters.startDate) conditions.push(gte(transactions.date, filters.startDate));
   if (filters.endDate) conditions.push(lte(transactions.date, filters.endDate));
 
@@ -134,9 +139,12 @@ export async function getTransactionsFiltered(
       bank: accounts.bank,
       accountNumber: accounts.accountNumber,
       accountLabel: accounts.label,
+      categoryName: categories.name,
+      categoryIcon: categories.icon,
     })
     .from(transactions)
-    .leftJoin(accounts, eq(transactions.accountId, accounts.id));
+    .leftJoin(accounts, eq(transactions.accountId, accounts.id))
+    .leftJoin(categories, eq(transactions.categoryId, categories.id));
 
   if (conditions.length > 0) {
     query = query.where(and(...conditions));
@@ -170,6 +178,10 @@ export async function updateTransactionCategory(db: Database, id: string, catego
 
 export async function updateTransactionNote(db: Database, id: string, note: string) {
   await db.update(transactions).set({ note }).where(eq(transactions.id, id));
+}
+
+export async function updateTransactionCounterparty(db: Database, id: string, counterparty: string) {
+  await db.update(transactions).set({ counterparty }).where(eq(transactions.id, id));
 }
 
 export async function getMonthlySpendingByCategory(db: Database, month: string) {

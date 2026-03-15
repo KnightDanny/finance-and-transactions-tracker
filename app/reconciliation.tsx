@@ -1,11 +1,27 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity, Alert } from 'react-native';
+import { StyleSheet, ScrollView, View, Text, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
 import { getUnresolvedGaps, skipGap, skipAllGaps } from '@/src/reconciliation/engine';
 import { formatCurrency } from '@/src/utils/currency';
+import dayjs from 'dayjs';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+
+function formatTimestamp(ts?: number, date?: string): string {
+  if (ts) {
+    const d = dayjs(ts);
+    if (d.isValid()) return d.format('MMM D, YYYY h:mm A');
+  }
+  if (date) return date;
+  return '?';
+}
+
+function formatGapTimeRange(gap: any): string {
+  const before = formatTimestamp(gap.beforeTx?.smsTimestamp, gap.beforeTx?.date);
+  const after = formatTimestamp(gap.afterTx?.smsTimestamp, gap.afterTx?.date);
+  return `Between ${before} — ${after}`;
+}
 
 export default function ReconciliationScreen() {
   const db = useDatabase();
@@ -13,10 +29,13 @@ export default function ReconciliationScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
   const [gaps, setGaps] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const loadGaps = useCallback(async () => {
+    setLoading(true);
     const data = await getUnresolvedGaps(db);
     setGaps(data);
+    setLoading(false);
   }, [db]);
 
   useEffect(() => {
@@ -53,7 +72,9 @@ export default function ReconciliationScreen() {
         This usually means an SMS was not received. Add manual transactions to resolve them, or skip to mark as unaccounted.
       </Text>
 
-      {gaps.length === 0 ? (
+      {loading ? (
+        <ActivityIndicator size="large" color={colors.tint} style={{ paddingVertical: 40 }} />
+      ) : gaps.length === 0 ? (
         <Text style={[styles.emptyText, { color: colors.text }]}>
           No unresolved balance gaps. Everything looks good!
         </Text>
@@ -84,13 +105,24 @@ export default function ReconciliationScreen() {
                 Expected: {formatCurrency(gap.expectedBalance)} | Actual: {formatCurrency(gap.actualBalance)}
               </Text>
               <Text style={[styles.gapDate, { color: colors.text }]}>
-                Date: {gap.detectedAt}
+                {formatGapTimeRange(gap)}
               </Text>
 
               <View style={styles.btnRow}>
                 <TouchableOpacity
                   style={[styles.resolveBtn, { backgroundColor: '#2f95dc', flex: 1 }]}
-                  onPress={() => router.push('/transaction/add' as any)}
+                  onPress={() => router.push({
+                    pathname: '/transaction/add',
+                    params: {
+                      gapId: gap.id,
+                      amount: Math.abs(gap.gapAmount).toFixed(2),
+                      type: gap.gapAmount > 0 ? 'credit' : 'debit',
+                      accountId: gap.accountId,
+                      date: gap.detectedAt,
+                      bank: gap.bank ?? '',
+                      accountNumber: gap.accountNumber ?? '',
+                    },
+                  } as any)}
                 >
                   <Text style={styles.resolveBtnText}>Add Transaction</Text>
                 </TouchableOpacity>

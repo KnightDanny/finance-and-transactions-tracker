@@ -1,7 +1,7 @@
 import React from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text, Image } from 'react-native';
 import { formatCurrency } from '@/src/utils/currency';
-import { useColorScheme } from '@/components/useColorScheme';
+import { getBankConfig } from '@/src/utils/bankConfig';
 
 interface Props {
   account: {
@@ -14,17 +14,20 @@ interface Props {
 }
 
 export function BalanceCard({ account }: Props) {
-  const colorScheme = useColorScheme();
+  const config = getBankConfig(account.bank);
 
   return (
-    <View style={[styles.card, { backgroundColor: colorScheme === 'dark' ? '#1e1e1e' : '#fff' }]}>
-      <View>
-        <Text style={[styles.bank, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{account.bank}</Text>
-        <Text style={[styles.name, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>
-          {account.label || `...${account.accountNumber.slice(-4)}`}
-        </Text>
+    <View style={[styles.card, { backgroundColor: config.color }]}>
+      <View style={styles.left}>
+        <Image source={config.logo} style={styles.logo} resizeMode="contain" />
+        <View>
+          <Text style={[styles.bank, { color: config.textColor, opacity: 0.8 }]}>{config.name}</Text>
+          <Text style={[styles.name, { color: config.textColor }]}>
+            {account.label || `...${account.accountNumber.slice(-4)}`}
+          </Text>
+        </View>
       </View>
-      <Text style={[styles.balance, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>
+      <Text style={[styles.balance, { color: config.textColor }]}>
         {formatCurrency(account.latestBalance ?? 0)}
       </Text>
     </View>
@@ -39,13 +42,15 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     marginBottom: 8,
-    elevation: 1,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
   },
-  bank: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 },
+  left: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  logo: { width: 32, height: 32, borderRadius: 6 },
+  bank: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
   name: { fontSize: 15, fontWeight: '500', marginTop: 2 },
   balance: { fontSize: 16, fontWeight: '600' },
 });

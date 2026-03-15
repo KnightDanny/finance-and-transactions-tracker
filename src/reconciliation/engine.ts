@@ -1,6 +1,6 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { generateId as uuid } from '@/src/utils/id';
-import { reconciliationGaps, accounts } from '@/src/db/schema';
+import { reconciliationGaps, accounts, transactions } from '@/src/db/schema';
 import { getPreviousTransaction } from '@/src/db/repository/transactions';
 
 // Minimal tolerance for floating-point rounding only
@@ -65,7 +65,9 @@ export async function checkReconciliation(
       expectedBalance,
       actualBalance,
       gapAmount: gap,
-      detectedAt: newTx.date,
+      detectedAt: newTx.smsTimestamp
+        ? new Date(newTx.smsTimestamp).toISOString()
+        : newTx.date,
       resolved: false,
       transactionBeforeId: prevTx.id,
       transactionAfterId: newTx.id,
@@ -86,7 +88,7 @@ export async function checkReconciliation(
  * Get all unresolved reconciliation gaps with account info.
  */
 export async function getUnresolvedGaps(db: any) {
-  return db
+  const gaps = await db
     .select({
       id: reconciliationGaps.id,
       accountId: reconciliationGaps.accountId,
@@ -104,6 +106,23 @@ export async function getUnresolvedGaps(db: any) {
     .leftJoin(accounts, eq(reconciliationGaps.accountId, accounts.id))
     .where(eq(reconciliationGaps.resolved, false))
     .orderBy(desc(reconciliationGaps.detectedAt));
+
+  // Fetch before/after transaction timestamps for each gap
+  const txIds = gaps.flatMap((g: any) => [g.transactionBeforeId, g.transactionAfterId].filter(Boolean));
+  if (txIds.length === 0) return gaps;
+
+  const txRows = await db
+    .select({ id: transactions.id, smsTimestamp: transactions.smsTimestamp, date: transactions.date })
+    .from(transactions)
+    .where(inArray(transactions.id, txIds));
+
+  const txMap = new Map(txRows.map((t: any) => [t.id, t]));
+
+  return gaps.map((g: any) => ({
+    ...g,
+    beforeTx: txMap.get(g.transactionBeforeId) ?? null,
+    afterTx: txMap.get(g.transactionAfterId) ?? null,
+  }));
 }
 
 /**
