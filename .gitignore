@@ -21,6 +21,9 @@ modules/sms-reader/android/build/
 .env
 .env.*
 
+# Claude Code
+CLAUDE.md
+
 # OS & IDE
 .DS_Store
 Thumbs.db
