@@ -8,7 +8,9 @@ Built for banks that don't offer API access — the app parses SMS notifications
 
 ## 📥 Download
 
-> **[Download APK](#)** — _Link coming soon_
+> **[⬇️ Download the latest APK](https://github.com/KnightDanny/finance-and-transactions-tracker/releases/latest)**
+
+Grab the latest `.apk` from the [Releases page](https://github.com/KnightDanny/finance-and-transactions-tracker/releases), then install it on your Android device (you may need to allow installs from unknown sources).
 
 ---
 
