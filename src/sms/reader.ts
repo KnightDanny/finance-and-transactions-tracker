@@ -54,6 +54,9 @@ export async function readSmsInbox(afterTimestamp: number = 0): Promise<RawSms[]
 
 /**
  * Mock SMS data for development/testing purposes.
+ * All names, phone numbers, account numbers, references, and links below are
+ * fictional placeholders — they only mirror the real SMS *format* so the
+ * parsers can be exercised. Do not put real personal/financial data here.
  * Remove or disable in production.
  */
 export function getMockSmsData(): RawSms[] {
@@ -68,7 +71,7 @@ export function getMockSmsData(): RawSms[] {
     {
       id: 'mock-2',
       address: 'CBE',
-      body: `Dear Sample User, You have transfered ETB 8,000.00 to Chaltu Bekele on 09/03/2026 at 11:27:53 from your account 1*****1111. Your account has been debited with a S.charge of ETB 2.00 and  15% and VAT(15%) of ETB0.30 and Disaster Fund (5%) of ETB0.10, with a total of ETB 8002.40. Your Current Balance is ETB 1,618.44. Thank you for Banking with CBE! https://apps.cbe.com.et:100/?id=FT00000BBBBB00001111 For feedback click the link https://forms.gle/R1s9nkJ6qZVCxRVu9`,
+      body: `Dear Sample User, You have transfered ETB 8,000.00 to Chaltu Bekele on 09/03/2026 at 11:27:53 from your account 1*****1111. Your account has been debited with a S.charge of ETB 2.00 and  15% and VAT(15%) of ETB0.30 and Disaster Fund (5%) of ETB0.10, with a total of ETB 8002.40. Your Current Balance is ETB 1,618.44. Thank you for Banking with CBE! https://apps.cbe.com.et:100/?id=FT00000BBBBB00001111`,
       date: Date.now() - 7200000,
       read: 1,
     },
