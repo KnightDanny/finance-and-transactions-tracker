@@ -1,6 +1,26 @@
+<div align="center">
+
+<img src="./assets/images/icon.png" alt="Finance & Transactions Tracker" width="120" style="border-radius: 24px;">
+
 # 💰 Finance & Transactions Tracker
 
-A fully offline, privacy-first Android app that automatically reads bank SMS messages to track transactions, manage budgets, and monitor net worth across multiple Ethiopian bank accounts.
+**A fully offline, privacy-first Android app that turns your bank SMS into a budget.**
+Automatically reads transaction messages to track spending, manage budgets, and monitor net worth across multiple Ethiopian bank accounts.
+
+<p>
+  <img alt="React Native" src="https://img.shields.io/badge/React_Native-0.83-61DAFB?logo=react&logoColor=black">
+  <img alt="Expo" src="https://img.shields.io/badge/Expo-SDK_55-000020?logo=expo&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white">
+  <img alt="Drizzle ORM" src="https://img.shields.io/badge/Drizzle_ORM-SQLite-C5F74F?logo=drizzle&logoColor=black">
+  <img alt="Zustand" src="https://img.shields.io/badge/Zustand-5-433E38">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white">
+</p>
+
+[![Download APK](https://img.shields.io/badge/⬇_Download-latest_APK-2EA043?style=for-the-badge)](https://github.com/KnightDanny/finance-and-transactions-tracker/releases/latest)
+
+[Features](#-features) · [Tech Stack](#-tech-stack) · [Project Structure](#-project-structure) · [Getting Started](#-getting-started) · [Add a Bank](#-adding-a-new-bank-parser)
+
+</div>
 
 Built for banks that don't offer API access — the app parses SMS notifications from **Commercial Bank of Ethiopia (CBE)** and **TeleBirr** to extract transaction data in real time.
 
@@ -66,7 +86,7 @@ Grab the latest `.apk` from the [Releases page](https://github.com/KnightDanny/f
 
 ---
 
-## 🛠️ Tech Stack
+## 🧰 Tech Stack
 
 | Layer | Technology |
 |---|---|
