@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Text } from 'react-native';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { fonts, sectionLabel } from '@/constants/Type';
 
 interface CategorySpending {
   categoryId: string | null;
@@ -17,8 +18,8 @@ interface Props {
 }
 
 const CHART_COLORS = [
-  '#5B8DEF', '#EF6B6B', '#F7B955', '#62CA77', '#9B6BEF',
-  '#EF8B5B', '#5BCAEF', '#EF5BA0', '#8BEF5B', '#CA62B0',
+  '#D4B96A', '#8FB573', '#C97B67', '#5E9BC9', '#8D6CAB',
+  '#C99667', '#7FAEA3', '#B08EA2', '#98917F', '#6577A0',
 ];
 
 export function SpendingPieChart({ data, totalExpense }: Props) {
@@ -28,8 +29,8 @@ export function SpendingPieChart({ data, totalExpense }: Props) {
 
   if (data.length === 0 || totalExpense === 0) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
-        <Text style={[styles.title, { color: colors.text }]}>Spending by Category</Text>
+      <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
+        <Text style={[styles.title, { color: colors.textSecondary }]}>Spending by Category</Text>
         <View style={styles.emptyState}>
           <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No spending data this month</Text>
         </View>
@@ -62,8 +63,8 @@ export function SpendingPieChart({ data, totalExpense }: Props) {
   }));
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
-      <Text style={[styles.title, { color: colors.text }]}>Spending by Category</Text>
+    <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
+      <Text style={[styles.title, { color: colors.textSecondary }]}>Spending by Category</Text>
 
       {/* Stacked progress bar */}
       <View style={[styles.barContainer, { backgroundColor: colors.surfaceVariant }]}>
@@ -95,9 +96,9 @@ export function SpendingPieChart({ data, totalExpense }: Props) {
             </View>
             <View style={styles.rowRight}>
               <Text style={[styles.catAmount, { color: colors.text }]}>
-                ETB {seg.total.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {seg.total.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
-              <Text style={[styles.catPercent, { color: colors.textSecondary }]}>
+              <Text style={[styles.catPercent, { color: colors.textTertiary }]}>
                 {seg.percentage.toFixed(1)}%
               </Text>
             </View>
@@ -111,22 +112,23 @@ export function SpendingPieChart({ data, totalExpense }: Props) {
 const styles = StyleSheet.create({
   container: {
     marginHorizontal: 13,
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 15,
+    marginBottom: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    borderRadius: 16,
     borderWidth: 1,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 16,
+    ...sectionLabel,
+    marginBottom: 14,
   },
   barContainer: {
     flexDirection: 'row',
-    height: 10,
-    borderRadius: 5,
+    height: 6,
+    borderRadius: 3,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: 14,
+    gap: 2,
   },
   barSegment: {
     height: '100%',
@@ -154,25 +156,26 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 9,
   },
   catLabel: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontFamily: fonts.sansMedium,
+    fontSize: 12.5,
     flex: 1,
   },
   rowRight: {
     alignItems: 'flex-end',
   },
   catAmount: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontFamily: fonts.monoMedium,
+    fontSize: 12.5,
   },
   catPercent: {
-    fontSize: 11,
+    fontFamily: fonts.mono,
+    fontSize: 10,
     marginTop: 1,
   },
   emptyState: {
@@ -180,6 +183,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    fontSize: 14,
+    fontFamily: fonts.sans,
+    fontSize: 13,
   },
 });

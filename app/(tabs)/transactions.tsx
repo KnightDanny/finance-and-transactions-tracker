@@ -7,6 +7,7 @@ import { getAllCategories } from '@/src/db/repository/budgets';
 import { TransactionCard } from '@/src/components/TransactionCard';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { fonts } from '@/constants/Type';
 
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -95,11 +96,12 @@ export default function TransactionsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Month selector */}
+      {/* Month selector — flexGrow:0 so the FlatList below can't squash it */}
       <ScrollView
         ref={monthScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.monthScroll}
         contentContainerStyle={styles.monthRow}
       >
         {months.map((m, idx) => {
@@ -108,12 +110,12 @@ export default function TransactionsScreen() {
             <TouchableOpacity
               key={m.key}
               style={[styles.monthChip, {
-                backgroundColor: isActive ? colors.accent : 'transparent',
-                borderColor: isActive ? colors.accent : colors.surfaceVariant,
+                backgroundColor: isActive ? colors.goldDim : 'transparent',
+                borderColor: isActive ? colors.hairlineStrong : 'transparent',
               }]}
               onPress={() => setSelectedMonthIdx(idx)}
             >
-              <Text style={[styles.monthText, { color: isActive ? '#fff' : colors.text }]}>
+              <Text style={[styles.monthText, { color: isActive ? colors.gold : colors.textTertiary }]}>
                 {m.label}
               </Text>
             </TouchableOpacity>
@@ -122,7 +124,7 @@ export default function TransactionsScreen() {
       </ScrollView>
 
       {/* Month summary bar */}
-      <View style={[styles.summaryBar, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+      <View style={[styles.summaryBar, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Income</Text>
           <Text style={[styles.summaryAmount, { color: colors.income }]}>
@@ -154,10 +156,13 @@ export default function TransactionsScreen() {
           return (
             <TouchableOpacity
               key={f}
-              style={[styles.filterChip, { backgroundColor: isActive ? colors.accent : chipBg }]}
+              style={[styles.filterChip, {
+                backgroundColor: isActive ? colors.goldDim : chipBg,
+                borderColor: isActive ? colors.hairlineStrong : 'transparent',
+              }]}
               onPress={() => { setTypeFilter(f); setSelectedCategoryIds([]); }}
             >
-              <Text style={[styles.filterText, { color: isActive ? '#fff' : colors.text }]}>
+              <Text style={[styles.filterText, { color: isActive ? colors.gold : colors.textSecondary }]}>
                 {f === 'all' ? 'All' : f === 'credit' ? 'Income' : 'Expense'}
               </Text>
             </TouchableOpacity>
@@ -165,10 +170,13 @@ export default function TransactionsScreen() {
         })}
 
         <TouchableOpacity
-          style={[styles.filterChip, { backgroundColor: hasCategoryFilter ? colors.accent : chipBg }]}
+          style={[styles.filterChip, {
+            backgroundColor: hasCategoryFilter ? colors.goldDim : chipBg,
+            borderColor: hasCategoryFilter ? colors.hairlineStrong : 'transparent',
+          }]}
           onPress={() => setShowCategoryModal(true)}
         >
-          <Text style={[styles.filterText, { color: hasCategoryFilter ? '#fff' : colors.text }]}>
+          <Text style={[styles.filterText, { color: hasCategoryFilter ? colors.gold : colors.textSecondary }]}>
             Categories{hasCategoryFilter ? ` (${selectedCategoryIds.length})` : ''}
           </Text>
         </TouchableOpacity>
@@ -184,26 +192,26 @@ export default function TransactionsScreen() {
         )}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.tint} />}
         ListEmptyComponent={
-          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
               No transactions for {selectedMonth.label.toLowerCase()}.
             </Text>
           </View>
         }
-        contentContainerStyle={transactions.length === 0 ? styles.emptyContainer : { paddingBottom: 80 }}
+        contentContainerStyle={transactions.length === 0 ? styles.emptyContainer : { paddingHorizontal: 13, paddingBottom: 80 }}
       />
 
       <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.accent }]}
+        style={[styles.fab, { backgroundColor: colors.gold }]}
         activeOpacity={0.8}
         onPress={() => router.push('/transaction/add' as any)}
       >
-        <Text style={styles.fabText}>+</Text>
+        <Text style={[styles.fabText, { color: colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8' }]}>+</Text>
       </TouchableOpacity>
 
       <Modal visible={showCategoryModal} transparent animationType="fade" onRequestClose={() => setShowCategoryModal(false)}>
         <Pressable style={styles.overlay} onPress={() => setShowCategoryModal(false)}>
-          <View style={[styles.modal, { backgroundColor: colors.surface }]} onStartShouldSetResponder={() => true}>
+          <View style={[styles.modal, { backgroundColor: colors.surface, borderColor: colors.hairlineStrong, borderWidth: 1 }]} onStartShouldSetResponder={() => true}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Filter by Category</Text>
 
             <View style={styles.modalChipRow}>
@@ -212,10 +220,13 @@ export default function TransactionsScreen() {
                 return (
                   <TouchableOpacity
                     key={cat.id}
-                    style={[styles.modalChip, { backgroundColor: isSelected ? colors.accent : chipBg }]}
+                    style={[styles.modalChip, {
+                      backgroundColor: isSelected ? colors.goldDim : chipBg,
+                      borderColor: isSelected ? colors.hairlineStrong : 'transparent',
+                    }]}
                     onPress={() => toggleCategory(cat.id)}
                   >
-                    <Text style={[styles.modalChipText, { color: isSelected ? '#fff' : colors.text }]}>
+                    <Text style={[styles.modalChipText, { color: isSelected ? colors.gold : colors.text }]}>
                       {cat.icon} {cat.name}
                     </Text>
                   </TouchableOpacity>
@@ -229,8 +240,8 @@ export default function TransactionsScreen() {
                   <Text style={[styles.clearText, { color: colors.expense }]}>Clear All</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity style={[styles.doneBtn, { backgroundColor: colors.accent }]} onPress={() => setShowCategoryModal(false)}>
-                <Text style={styles.doneBtnText}>Done</Text>
+              <TouchableOpacity style={[styles.doneBtn, { backgroundColor: colors.gold }]} onPress={() => setShowCategoryModal(false)}>
+                <Text style={[styles.doneBtnText, { color: colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8' }]}>Done</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -242,25 +253,30 @@ export default function TransactionsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  // ScrollView defaults to flexGrow:1 AND flexShrink:1 — both must be pinned
+  // or the FlatList below squashes the pills
+  monthScroll: { flexGrow: 0, flexShrink: 0 },
   monthRow: {
     paddingHorizontal: 13,
-    paddingTop: 8,
+    paddingTop: 10,
     paddingBottom: 4,
     gap: 8,
+    alignItems: 'center',
   },
   monthChip: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 99,
     borderWidth: 1,
   },
-  monthText: { fontSize: 14, fontWeight: '600' },
+  monthText: { fontFamily: fonts.mono, fontSize: 12 },
   summaryBar: {
     flexDirection: 'row',
     marginHorizontal: 13,
     marginTop: 8,
-    padding: 12,
-    borderRadius: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 6,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: 'center',
   },
@@ -268,19 +284,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
   },
-  summaryLabel: { fontSize: 11, marginBottom: 2 },
-  summaryAmount: { fontSize: 13, fontWeight: '700' },
+  summaryLabel: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 1.3, textTransform: 'uppercase', marginBottom: 4 },
+  summaryAmount: { fontFamily: fonts.monoMedium, fontSize: 12.5 },
   summaryDivider: {
     width: 1,
     height: 28,
   },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', padding: 13, gap: 8 },
   filterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 99,
+    borderWidth: 1,
   },
-  filterText: { fontSize: 13, fontWeight: '600' },
+  filterText: { fontFamily: fonts.sansSemiBold, fontSize: 12 },
   emptyContainer: { flex: 1, justifyContent: 'center', padding: 13 },
   emptyCard: {
     padding: 24,
@@ -288,7 +305,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
   },
-  emptyText: { fontSize: 14, textAlign: 'center' },
+  emptyText: { fontFamily: fonts.sans, fontSize: 13, textAlign: 'center' },
   fab: {
     position: 'absolute',
     right: 20,
@@ -300,7 +317,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     elevation: 4,
   },
-  fabText: { color: '#fff', fontSize: 28, lineHeight: 30 },
+  fabText: { fontFamily: fonts.sans, fontSize: 28, lineHeight: 30 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -314,14 +331,15 @@ const styles = StyleSheet.create({
     padding: 24,
     elevation: 8,
   },
-  modalTitle: { fontSize: 20, fontWeight: '700', marginBottom: 16 },
+  modalTitle: { fontFamily: fonts.sansBold, fontSize: 17, marginBottom: 16 },
   modalChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   modalChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 99,
+    borderWidth: 1,
   },
-  modalChipText: { fontSize: 14 },
+  modalChipText: { fontFamily: fonts.sans, fontSize: 13 },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -329,11 +347,11 @@ const styles = StyleSheet.create({
     marginTop: 24,
     gap: 16,
   },
-  clearText: { fontSize: 14, fontWeight: '500' },
+  clearText: { fontFamily: fonts.sansMedium, fontSize: 13 },
   doneBtn: {
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 15,
   },
-  doneBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  doneBtnText: { fontFamily: fonts.sansBold, fontSize: 13 },
 });

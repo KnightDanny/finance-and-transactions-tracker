@@ -1,14 +1,17 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/Colors';
+import { fonts } from '@/constants/Type';
 import { useColorScheme } from '@/components/useColorScheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
-  const isDark = colorScheme === 'dark';
+  // Edge-to-edge: keep the tab row above the system gesture pill
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -16,25 +19,30 @@ export default function TabLayout() {
         tabBarActiveTintColor: colors.tint,
         tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.divider,
+          backgroundColor: colors.background,
+          borderTopColor: colors.hairline,
+          borderTopWidth: 1,
           elevation: 0,
-          height: 56,
-          paddingBottom: 4,
+          height: 58 + insets.bottom,
+          paddingBottom: 8 + insets.bottom,
+          paddingTop: 7,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '500',
+          fontFamily: fonts.sansBold,
+          fontSize: 9,
+          letterSpacing: 1.2,
+          textTransform: 'uppercase',
         },
         headerStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: colors.background,
           elevation: 0,
           shadowOpacity: 0,
           borderBottomWidth: 0,
         },
         headerTitleStyle: {
-          fontWeight: '700',
-          fontSize: 20,
+          fontFamily: fonts.sansExtraBold,
+          fontSize: 21,
+          letterSpacing: -0.3,
         },
         headerTintColor: colors.text,
         headerShown: true,
@@ -47,7 +55,7 @@ export default function TabLayout() {
             <SymbolView
               name={{ ios: 'house.fill', android: 'home', web: 'home' }}
               tintColor={color}
-              size={24}
+              size={23}
             />
           ),
         }}
@@ -55,12 +63,12 @@ export default function TabLayout() {
       <Tabs.Screen
         name="transactions"
         options={{
-          title: 'Transactions',
+          title: 'Ledger',
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{ ios: 'list.bullet', android: 'receipt_long', web: 'list' }}
               tintColor={color}
-              size={24}
+              size={23}
             />
           ),
         }}
@@ -73,7 +81,7 @@ export default function TabLayout() {
             <SymbolView
               name={{ ios: 'chart.pie.fill', android: 'pie_chart', web: 'pie_chart' }}
               tintColor={color}
-              size={24}
+              size={23}
             />
           ),
         }}
@@ -84,9 +92,9 @@ export default function TabLayout() {
           title: 'More',
           tabBarIcon: ({ color }) => (
             <SymbolView
-              name={{ ios: 'gearshape.fill', android: 'settings', web: 'settings' }}
+              name={{ ios: 'ellipsis.circle.fill', android: 'more_horiz', web: 'more_horiz' }}
               tintColor={color}
-              size={24}
+              size={23}
             />
           ),
         }}

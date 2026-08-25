@@ -7,6 +7,7 @@ import { getRecentTransactions, getSpendingSummary, getSpendingByCategory, getMo
 import { getBudgetsForMonth } from '@/src/db/repository/budgets';
 import { TransactionCard } from '@/src/components/TransactionCard';
 import { BalanceCard } from '@/src/components/BalanceCard';
+import { BankGroupCard } from '@/src/components/BankGroupCard';
 import { SpendingSummaryCards } from '@/src/components/SpendingSummaryCards';
 import { SpendingPieChart } from '@/src/components/SpendingPieChart';
 import { BudgetProgressBar } from '@/src/components/BudgetProgressBar';
@@ -14,8 +15,27 @@ import { ReconciliationBanner } from '@/src/components/ReconciliationBanner';
 import { getUnresolvedGaps } from '@/src/reconciliation/engine';
 import { syncSms } from '@/src/sms/sync';
 import { SymbolView } from 'expo-symbols';
+import { Feather } from '@expo/vector-icons';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { fonts, sectionLabel } from '@/constants/Type';
+import { useBalancePrivacy, MASKED } from '@/src/state/balancePrivacy';
+
+/** Group accounts by bank; richest bank first, richest account first within each. */
+function groupAccountsByBank(accounts: any[]): { bank: string; bankAccounts: any[] }[] {
+  const groups: { bank: string; bankAccounts: any[] }[] = [];
+  for (const account of accounts) {
+    const existing = groups.find((g) => g.bank === account.bank);
+    if (existing) existing.bankAccounts.push(account);
+    else groups.push({ bank: account.bank, bankAccounts: [account] });
+  }
+  const total = (g: { bankAccounts: any[] }) =>
+    g.bankAccounts.reduce((sum, a) => sum + (a.latestBalance ?? 0), 0);
+  for (const g of groups) {
+    g.bankAccounts.sort((a, b) => (b.latestBalance ?? 0) - (a.latestBalance ?? 0));
+  }
+  return groups.sort((a, b) => total(b) - total(a));
+}
 
 function getCurrentMonth() {
   const now = new Date();
@@ -125,28 +145,72 @@ export default function DashboardScreen() {
 
   const netFlow = spending.totalIncome - spending.totalExpense;
   const netFlowColor = netFlow >= 0 ? colors.income : colors.expense;
+  const { hidden, toggle } = useBalancePrivacy();
 
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.tint} />}
     >
-      {/* Net Worth Hero Card */}
-      <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
-        <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Total Balance</Text>
+      {/* Net Worth Hero — open composition, no card box */}
+      <View style={styles.hero}>
+        <View style={styles.heroLabelRow}>
+          <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Total Balance</Text>
+          <TouchableOpacity
+            onPress={toggle}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={styles.heroEye}
+          >
+            {/* Feather (font-based): the expo-symbols Android vector clips this
+                wide glyph at its right edge */}
+            <Feather
+              name={hidden ? 'eye-off' : 'eye'}
+              size={15}
+              color={hidden ? colors.gold : colors.textTertiary}
+            />
+          </TouchableOpacity>
+        </View>
         <Text style={[styles.heroAmount, { color: colors.text }]}>
-          ETB {netWorth.toLocaleString('en', { minimumFractionDigits: 2 })}
+          <Text style={[styles.heroCurrency, { color: colors.textSecondary }]}>ETB </Text>
+          {hidden ? MASKED : netWorth.toLocaleString('en', { minimumFractionDigits: 2 })}
         </Text>
         <View style={styles.heroMeta}>
-          <Text style={[styles.heroAccounts, { color: colors.textSecondary }]}>
-            {accounts.length} account{accounts.length !== 1 ? 's' : ''}
-          </Text>
           {(spending.totalIncome > 0 || spending.totalExpense > 0) && (
-            <Text style={[styles.heroFlow, { color: netFlowColor }]}>
-              {netFlow >= 0 ? '+' : ''}{netFlow.toLocaleString('en', { minimumFractionDigits: 2 })} this month
+            <Text style={[styles.heroFlow, { color: hidden ? colors.textTertiary : netFlowColor }]}>
+              {hidden ? '••••' : `${netFlow >= 0 ? '+' : ''}${netFlow.toLocaleString('en', { minimumFractionDigits: 2 })}`}
             </Text>
           )}
+          <Text style={[styles.heroAccounts, { color: colors.textTertiary }]}>
+            this month · {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+          </Text>
         </View>
+        <View style={[styles.heroRule, { backgroundColor: colors.gold }]} />
+      </View>
+
+      {/* Accounts — right under the hero */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginBottom: 11 }]}>Accounts</Text>
+        {accounts.length === 0 ? (
+          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+              No accounts yet. Sync SMS to get started.
+            </Text>
+          </View>
+        ) : (
+          groupAccountsByBank(accounts).map(({ bank, bankAccounts }) =>
+            bankAccounts.length > 1 ? (
+              <BankGroupCard key={bank} bank={bank} accounts={bankAccounts} />
+            ) : (
+              <TouchableOpacity
+                key={bankAccounts[0].id}
+                activeOpacity={0.7}
+                onPress={() => router.push(`/account/${bankAccounts[0].id}` as any)}
+              >
+                <BalanceCard account={bankAccounts[0]} />
+              </TouchableOpacity>
+            )
+          )
+        )}
       </View>
 
       {/* Reconciliation Banner */}
@@ -157,7 +221,7 @@ export default function DashboardScreen() {
 
       {/* Monthly Summary Header */}
       <View style={styles.monthHeader}>
-        <Text style={[styles.monthTitle, { color: colors.text }]}>{monthLabel} Summary</Text>
+        <Text style={[styles.monthTitle, { color: colors.textSecondary }]}>{monthLabel} Summary</Text>
       </View>
 
       {/* Income / Expense Summary Cards */}
@@ -176,11 +240,11 @@ export default function DashboardScreen() {
 
       {/* Budget Progress */}
       {budgets.length > 0 && (
-        <View style={[styles.budgetSection, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+        <View style={[styles.budgetSection, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
           <View style={styles.sectionHeader}>
-            <Text style={[styles.budgetSectionTitle, { color: colors.text }]}>Budgets</Text>
+            <Text style={[styles.budgetSectionTitle, { color: colors.textSecondary }]}>Budgets</Text>
             <TouchableOpacity onPress={() => router.push('/(tabs)/budgets' as any)}>
-              <Text style={[styles.seeAll, { color: colors.accent }]}>Manage</Text>
+              <Text style={[styles.seeAll, { color: colors.gold }]}>Manage</Text>
             </TouchableOpacity>
           </View>
           {budgets.map((b: any) => (
@@ -196,34 +260,12 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      {/* Accounts */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Accounts</Text>
-        {accounts.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
-            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-              No accounts yet. Sync SMS to get started.
-            </Text>
-          </View>
-        ) : (
-          accounts.map((account: any) => (
-            <TouchableOpacity
-              key={account.id}
-              activeOpacity={0.7}
-              onPress={() => router.push(`/account/${account.id}` as any)}
-            >
-              <BalanceCard account={account} />
-            </TouchableOpacity>
-          ))
-        )}
-      </View>
-
       {/* Recent Transactions */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Transactions</Text>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Recent Transactions</Text>
           <TouchableOpacity onPress={() => router.push('/(tabs)/transactions' as any)}>
-            <Text style={[styles.seeAll, { color: colors.accent }]}>See All</Text>
+            <Text style={[styles.seeAll, { color: colors.gold }]}>See All</Text>
           </TouchableOpacity>
         </View>
         {recentTxns.length === 0 ? (
@@ -252,48 +294,50 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  heroCard: {
-    margin: 13,
-    padding: 24,
-    borderRadius: 20,
+  hero: {
+    marginTop: 22,
+    marginBottom: 18,
+    marginHorizontal: 13,
     alignItems: 'center',
-    borderWidth: 1,
   },
-  heroLabel: { fontSize: 13, marginBottom: 6 },
-  heroAmount: { fontSize: 32, fontWeight: '700' },
+  heroLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 },
+  heroEye: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
+  heroLabel: { ...sectionLabel },
+  heroAmount: { fontFamily: fonts.monoMedium, fontSize: 33, letterSpacing: -0.5 },
+  heroCurrency: { fontFamily: fonts.mono, fontSize: 16 },
   heroMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginTop: 8,
+    gap: 6,
+    marginTop: 9,
   },
-  heroAccounts: { fontSize: 12 },
-  heroFlow: { fontSize: 12, fontWeight: '600' },
+  heroAccounts: { fontFamily: fonts.sans, fontSize: 11.5 },
+  heroFlow: { fontFamily: fonts.monoMedium, fontSize: 11.5 },
+  heroRule: { height: 1, width: 56, marginTop: 16, opacity: 0.8 },
   monthHeader: {
-    marginHorizontal: 13,
-    marginBottom: 12,
+    marginHorizontal: 16,
+    marginBottom: 11,
   },
-  monthTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
+  monthTitle: { ...sectionLabel },
   budgetSection: {
     marginHorizontal: 13,
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 15,
+    marginBottom: 18,
+    paddingHorizontal: 16,
+    paddingTop: 15,
+    paddingBottom: 8,
+    borderRadius: 16,
     borderWidth: 1,
   },
-  budgetSectionTitle: { fontSize: 16, fontWeight: '700' },
+  budgetSectionTitle: { ...sectionLabel },
   section: { marginHorizontal: 13, marginBottom: 20 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
-  seeAll: { fontSize: 14, fontWeight: '500' },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 11 },
+  sectionTitle: { ...sectionLabel, marginLeft: 3 },
+  seeAll: { fontFamily: fonts.sansBold, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase' },
   emptyCard: {
     padding: 24,
-    borderRadius: 15,
+    borderRadius: 16,
     alignItems: 'center',
     borderWidth: 1,
   },
-  emptyText: { fontSize: 14, textAlign: 'center' },
+  emptyText: { fontFamily: fonts.sans, fontSize: 13, textAlign: 'center' },
 });

@@ -1,6 +1,15 @@
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import Colors from '@/constants/Colors';
+import { fonts } from '@/constants/Type';
 import { useFonts } from 'expo-font';
+import {
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from '@expo-google-fonts/plus-jakarta-sans';
+import { DMMono_400Regular, DMMono_500Medium } from '@expo-google-fonts/dm-mono';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef } from 'react';
@@ -23,6 +32,13 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
+    DMMono_400Regular,
+    DMMono_500Medium,
   });
   const initialize = useAuthStore(s => s.initialize);
   const isReady = useAuthStore(s => s.isReady);
@@ -100,7 +116,11 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={navTheme}>
       <DatabaseProvider>
-        <Stack>
+        <Stack
+          screenOptions={{
+            headerTitleStyle: { fontFamily: fonts.sansBold, fontSize: 17 },
+            headerShadowVisible: false,
+          }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="transaction/add" options={{ presentation: 'modal', title: 'Add Transaction' }} />
           <Stack.Screen name="transaction/[id]" options={{ title: 'Transaction Detail' }} />

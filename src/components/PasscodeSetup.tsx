@@ -117,13 +117,13 @@ export function PasscodeSetup({ onComplete, onCancel, mode = 'setup' }: Props) {
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#0C0B09',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 998,
   },
   content: { alignItems: 'center', width: '100%', paddingHorizontal: 40 },
-  title: { color: '#fff', fontSize: 18, fontWeight: '600', marginBottom: 32 },
+  title: { color: '#F1EDE2', fontSize: 18, fontWeight: '600', marginBottom: 32 },
   dotsRow: { flexDirection: 'row', gap: 16, marginBottom: 16 },
   dot: {
     width: 14,
@@ -132,8 +132,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.4)',
   },
-  dotFilled: { backgroundColor: '#2f95dc', borderColor: '#2f95dc' },
-  error: { color: '#e74c3c', fontSize: 13, marginBottom: 8 },
+  dotFilled: { backgroundColor: '#D4B96A', borderColor: '#D4B96A' },
+  error: { color: '#C97B67', fontSize: 13, marginBottom: 8 },
   keypad: { marginTop: 24, width: '100%' },
   keypadRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 12 },
   key: {
@@ -144,8 +144,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 12,
   },
-  keyText: { color: '#fff', fontSize: 28, fontWeight: '500' },
+  keyText: { color: '#F1EDE2', fontSize: 28, fontWeight: '500' },
   keyTextSmall: { color: 'rgba(255,255,255,0.5)', fontSize: 14 },
   cancelBtn: { marginTop: 24 },
-  cancelText: { color: '#e74c3c', fontSize: 15 },
+  cancelText: { color: '#C97B67', fontSize: 15 },
 });

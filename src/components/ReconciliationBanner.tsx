@@ -1,7 +1,8 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { useColorScheme } from '@/components/useColorScheme';
-import Colors, { theme } from '@/constants/Colors';
+import Colors from '@/constants/Colors';
+import { fonts } from '@/constants/Type';
 
 interface Props {
   gapCount: number;
@@ -9,31 +10,25 @@ interface Props {
 }
 
 export function ReconciliationBanner({ gapCount, onPress }: Props) {
-  if (gapCount === 0) return null;
-
   const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
+  const colors = Colors[colorScheme];
+
+  if (gapCount === 0) return null;
 
   return (
     <TouchableOpacity
       style={[styles.banner, {
-        backgroundColor: isDark ? 'rgba(202, 153, 90, 0.15)' : 'rgba(202, 153, 90, 0.12)',
-        borderColor: theme.warning,
+        backgroundColor: colorScheme === 'dark' ? 'rgba(201,150,103,0.06)' : 'rgba(168,118,59,0.07)',
+        borderColor: colorScheme === 'dark' ? 'rgba(201,150,103,0.35)' : 'rgba(168,118,59,0.35)',
       }]}
       activeOpacity={0.7}
       onPress={onPress}
     >
-      <View style={[styles.iconCircle, { backgroundColor: theme.warning }]}>
-        <Text style={styles.icon}>!</Text>
-      </View>
-      <View style={styles.textGroup}>
-        <Text style={[styles.title, { color: isDark ? '#DA9C72' : '#856404' }]}>
-          {gapCount} balance {gapCount === 1 ? 'gap' : 'gaps'} detected
-        </Text>
-        <Text style={[styles.subtitle, { color: isDark ? 'rgba(218,156,114,0.7)' : 'rgba(133,100,4,0.7)' }]}>
-          Tap to review and resolve.
-        </Text>
-      </View>
+      <Text style={[styles.count, { color: colors.warning }]}>{gapCount}</Text>
+      <Text style={[styles.title, { color: colors.warning }]}>
+        balance {gapCount === 1 ? 'gap' : 'gaps'} to review
+      </Text>
+      <Text style={[styles.arrow, { color: colors.warning }]}>→</Text>
     </TouchableOpacity>
   );
 }
@@ -42,22 +37,15 @@ const styles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 9,
     marginHorizontal: 13,
-    marginBottom: 13,
-    padding: 14,
-    borderRadius: 15,
+    marginBottom: 14,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
   },
-  iconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  icon: { fontSize: 16, fontWeight: '800', color: '#fff' },
-  textGroup: { flex: 1 },
-  title: { fontSize: 14, fontWeight: '600' },
-  subtitle: { fontSize: 12, marginTop: 2 },
+  count: { fontFamily: fonts.monoMedium, fontSize: 13 },
+  title: { fontFamily: fonts.sansMedium, fontSize: 12.5, flex: 1 },
+  arrow: { fontSize: 14, opacity: 0.7 },
 });

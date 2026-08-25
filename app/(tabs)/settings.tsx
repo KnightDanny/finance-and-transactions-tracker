@@ -7,6 +7,7 @@ import { isBiometricAvailable } from '@/src/auth/biometric';
 import { PasscodeSetup } from '@/src/components/PasscodeSetup';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { fonts, sectionLabel } from '@/constants/Type';
 
 const TIMEOUT_OPTIONS = [
   { label: 'Immediately', value: 0 },
@@ -143,10 +144,14 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.group, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
       {menuItems.map((item, index) => (
         <TouchableOpacity
           key={index}
-          style={[styles.menuItem, { borderBottomColor: colors.divider }]}
+          style={[styles.menuItem, {
+            borderBottomColor: colors.hairline,
+            borderBottomWidth: index === menuItems.length - 1 ? 0 : 1,
+          }]}
           onPress={item.onPress}
         >
           <View style={styles.menuRow}>
@@ -158,13 +163,15 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
       ))}
+      </View>
 
       {/* Security Section */}
-      <Text style={[styles.sectionHeader, { color: colors.text }]}>Security</Text>
+      <Text style={[styles.sectionHeader, { color: colors.textSecondary }]}>Security</Text>
 
+      <View style={[styles.group, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
       {!isPasscodeSet ? (
         <TouchableOpacity
-          style={[styles.menuItem, { borderBottomColor: colors.divider }]}
+          style={[styles.menuItem, { borderBottomWidth: 0 }]}
           onPress={() => setShowPasscodeSetup(true)}
         >
           <View style={styles.menuTextGroup}>
@@ -175,7 +182,7 @@ export default function SettingsScreen() {
       ) : (
         <>
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: colors.divider }]}
+            style={[styles.menuItem, { borderBottomColor: colors.hairline }]}
             onPress={() => setShowChangePasscode(true)}
           >
             <View style={styles.menuTextGroup}>
@@ -185,7 +192,7 @@ export default function SettingsScreen() {
           </TouchableOpacity>
 
           {hasBiometricHardware && (
-            <View style={[styles.menuItem, { borderBottomColor: colors.divider }]}>
+            <View style={[styles.menuItem, { borderBottomColor: colors.hairline }]}>
               <View style={styles.menuRow}>
                 <View style={styles.menuTextGroup}>
                   <Text style={[styles.menuTitle, { color: colors.text }]}>Fingerprint Unlock</Text>
@@ -194,15 +201,15 @@ export default function SettingsScreen() {
                 <Switch
                   value={isBiometricEnabled}
                   onValueChange={handleBiometricToggle}
-                  trackColor={{ false: '#767577', true: colors.accent }}
-                  thumbColor={isBiometricEnabled ? '#fff' : '#f4f3f4'}
+                  trackColor={{ false: colors.surfaceVariant, true: colors.gold }}
+                  thumbColor={'#FFFDF8'}
                 />
               </View>
             </View>
           )}
 
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: colors.divider }]}
+            style={[styles.menuItem, { borderBottomColor: colors.hairline }]}
             onPress={handleTimeoutPress}
           >
             <View style={styles.menuTextGroup}>
@@ -212,7 +219,7 @@ export default function SettingsScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: colors.divider }]}
+            style={[styles.menuItem, { borderBottomWidth: 0 }]}
             onPress={() => setShowVerifyForRemove(true)}
           >
             <View style={styles.menuTextGroup}>
@@ -222,9 +229,10 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </>
       )}
+      </View>
 
       <View style={styles.footer}>
-        <Text style={[styles.footerText, { color: colors.text }]}>Budget Tracker v1.0.0</Text>
+        <Text style={[styles.footerText, { color: colors.textTertiary }]}>Budget Tracker v1.0.0</Text>
       </View>
     </ScrollView>
   );
@@ -232,19 +240,21 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  group: {
+    marginHorizontal: 13,
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
   sectionHeader: {
-    fontSize: 13,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    opacity: 0.5,
+    ...sectionLabel,
     paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 8,
+    paddingTop: 22,
   },
   menuItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
     borderBottomWidth: 1,
   },
   menuRow: {
@@ -253,8 +263,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   menuTextGroup: { flex: 1 },
-  menuTitle: { fontSize: 16, fontWeight: '500' },
-  menuSubtitle: { fontSize: 13, marginTop: 2 },
-  footer: { padding: 32, alignItems: 'center' },
-  footerText: { fontSize: 12, opacity: 0.3 },
+  menuTitle: { fontFamily: fonts.sansSemiBold, fontSize: 13.5 },
+  menuSubtitle: { fontFamily: fonts.sans, fontSize: 11, marginTop: 2.5 },
+  footer: { padding: 28, alignItems: 'center' },
+  footerText: { fontFamily: fonts.mono, fontSize: 10.5 },
 });

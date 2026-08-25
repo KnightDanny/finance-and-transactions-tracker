@@ -138,13 +138,13 @@ export function LockScreen() {
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#0C0B09',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 999,
   },
   content: { alignItems: 'center', width: '100%', paddingHorizontal: 40 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '700', marginBottom: 8 },
+  title: { color: '#F1EDE2', fontSize: 24, fontWeight: '700', marginBottom: 8 },
   subtitle: { color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 32 },
   dotsRow: { flexDirection: 'row', gap: 16, marginBottom: 16 },
   dot: {
@@ -154,9 +154,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.4)',
   },
-  dotFilled: { backgroundColor: '#2f95dc', borderColor: '#2f95dc' },
-  error: { color: '#e74c3c', fontSize: 13, marginBottom: 8 },
-  cooldownText: { color: '#f39c12', fontSize: 13, marginBottom: 8 },
+  dotFilled: { backgroundColor: '#D4B96A', borderColor: '#D4B96A' },
+  error: { color: '#C97B67', fontSize: 13, marginBottom: 8 },
+  cooldownText: { color: '#C99667', fontSize: 13, marginBottom: 8 },
   keypad: { marginTop: 24, width: '100%' },
   keypadRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 12 },
   key: {
@@ -167,9 +167,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 12,
   },
-  keyText: { color: '#fff', fontSize: 28, fontWeight: '500' },
+  keyText: { color: '#F1EDE2', fontSize: 28, fontWeight: '500' },
   keyTextSmall: { color: 'rgba(255,255,255,0.5)', fontSize: 14 },
   keyBiometric: { color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center' },
   biometricBtn: { marginTop: 16 },
-  biometricText: { color: '#2f95dc', fontSize: 14, fontWeight: '500' },
+  biometricText: { color: '#D4B96A', fontSize: 14, fontWeight: '500' },
 });

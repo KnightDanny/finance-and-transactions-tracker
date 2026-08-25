@@ -7,6 +7,7 @@ import { getMonthlySpendingByCategory } from '@/src/db/repository/transactions';
 import { BudgetProgressBar } from '@/src/components/BudgetProgressBar';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { fonts, sectionLabel } from '@/constants/Type';
 
 export default function BudgetsScreen() {
   const db = useDatabase();
@@ -112,7 +113,7 @@ export default function BudgetsScreen() {
         </View>
 
         {/* Total Summary Card */}
-        <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+        <View style={[styles.summaryCard, { backgroundColor: colors.goldDim, borderColor: colors.hairlineStrong }]}>
           <View style={styles.summaryTop}>
             <View>
               <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Total Spent</Text>
@@ -130,7 +131,7 @@ export default function BudgetsScreen() {
           <View style={[styles.totalBar, { backgroundColor: colors.surfaceVariant }]}>
             <View style={[styles.totalBarFill, {
               width: `${totalProgress * 100}%`,
-              backgroundColor: isOverTotal ? colors.expense : totalProgress > 0.8 ? '#E6A23C' : colors.income,
+              backgroundColor: isOverTotal ? colors.expense : totalProgress > 0.8 ? colors.gold : colors.income,
             }]} />
           </View>
           <Text style={[styles.summaryRemaining, { color: colors.textSecondary }]}>
@@ -143,7 +144,7 @@ export default function BudgetsScreen() {
 
         {/* Budget Items */}
         {budgets.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
               No budgets set for this month.
             </Text>
@@ -174,17 +175,17 @@ export default function BudgetsScreen() {
 
       {/* FAB */}
       <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.accent }]}
+        style={[styles.fab, { backgroundColor: colors.gold }]}
         activeOpacity={0.8}
         onPress={openAddModal}
       >
-        <Text style={styles.fabText}>+</Text>
+        <Text style={[styles.fabText, { color: colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8' }]}>+</Text>
       </TouchableOpacity>
 
       {/* Add/Edit Budget Modal */}
       <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={() => setShowAddModal(false)}>
         <Pressable style={styles.overlay} onPress={() => setShowAddModal(false)}>
-          <View style={[styles.modal, { backgroundColor: colors.surface }]} onStartShouldSetResponder={() => true}>
+          <View style={[styles.modal, { backgroundColor: colors.surface, borderColor: colors.hairlineStrong, borderWidth: 1 }]} onStartShouldSetResponder={() => true}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>
               {budgetedCategoryIds.has(selectedCategoryId ?? '') ? 'Edit Budget' : 'Set Budget'}
             </Text>
@@ -199,10 +200,13 @@ export default function BudgetsScreen() {
                   return (
                     <TouchableOpacity
                       key={cat.id}
-                      style={[styles.catChip, { backgroundColor: isSelected ? colors.accent : colors.surfaceVariant }]}
+                      style={[styles.catChip, {
+                        backgroundColor: isSelected ? colors.goldDim : colors.surfaceVariant,
+                        borderColor: isSelected ? colors.hairlineStrong : 'transparent',
+                      }]}
                       onPress={() => setSelectedCategoryId(cat.id)}
                     >
-                      <Text style={[styles.catChipText, { color: isSelected ? '#fff' : colors.text }]}>
+                      <Text style={[styles.catChipText, { color: isSelected ? colors.gold : colors.text }]}>
                         {cat.icon} {cat.name}
                       </Text>
                     </TouchableOpacity>
@@ -214,7 +218,7 @@ export default function BudgetsScreen() {
             {/* Amount input */}
             <Text style={[styles.fieldLabel, { color: colors.textSecondary, marginTop: 16 }]}>Monthly Limit (ETB)</Text>
             <TextInput
-              style={[styles.input, { backgroundColor: colors.surfaceVariant, color: colors.text, borderColor: colors.divider }]}
+              style={[styles.input, { backgroundColor: colors.surfaceVariant, color: colors.text, borderColor: colors.hairline }]}
               value={limitInput}
               onChangeText={setLimitInput}
               placeholder="e.g. 5000"
@@ -227,11 +231,11 @@ export default function BudgetsScreen() {
                 <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: colors.accent, opacity: selectedCategoryId && limitInput ? 1 : 0.5 }]}
+                style={[styles.saveBtn, { backgroundColor: colors.gold, opacity: selectedCategoryId && limitInput ? 1 : 0.5 }]}
                 onPress={handleSaveBudget}
                 disabled={!selectedCategoryId || !limitInput}
               >
-                <Text style={styles.saveBtnText}>Save</Text>
+                <Text style={[styles.saveBtnText, { color: colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8' }]}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -251,8 +255,8 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   arrowBtn: { padding: 8 },
-  monthArrow: { fontSize: 28, fontWeight: '300' },
-  monthLabel: { fontSize: 18, fontWeight: '700', minWidth: 160, textAlign: 'center' },
+  monthArrow: { fontSize: 26, fontWeight: '300' },
+  monthLabel: { fontFamily: fonts.sansBold, fontSize: 15, minWidth: 160, textAlign: 'center' },
   summaryCard: {
     marginHorizontal: 13,
     padding: 16,
@@ -267,12 +271,12 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   summaryRight: { alignItems: 'flex-end' },
-  summaryLabel: { fontSize: 12, marginBottom: 2 },
-  summaryAmount: { fontSize: 22, fontWeight: '700' },
-  summaryBudgeted: { fontSize: 16, fontWeight: '600' },
-  totalBar: { height: 8, borderRadius: 4, overflow: 'hidden' },
-  totalBarFill: { height: 8, borderRadius: 4 },
-  summaryRemaining: { fontSize: 12, marginTop: 8 },
+  summaryLabel: { ...sectionLabel, fontSize: 9.5, marginBottom: 5 },
+  summaryAmount: { fontFamily: fonts.monoMedium, fontSize: 20 },
+  summaryBudgeted: { fontFamily: fonts.mono, fontSize: 14 },
+  totalBar: { height: 3, borderRadius: 3, overflow: 'hidden', marginTop: 4 },
+  totalBarFill: { height: 3, borderRadius: 3 },
+  summaryRemaining: { fontFamily: fonts.sans, fontSize: 11, marginTop: 9 },
   emptyCard: {
     margin: 13,
     padding: 32,
@@ -280,8 +284,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
   },
-  emptyText: { fontSize: 15, fontWeight: '500', marginBottom: 4 },
-  emptySubtext: { fontSize: 13 },
+  emptyText: { fontFamily: fonts.sansMedium, fontSize: 14, marginBottom: 4 },
+  emptySubtext: { fontFamily: fonts.sans, fontSize: 12.5 },
   fab: {
     position: 'absolute',
     right: 20,
@@ -293,7 +297,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     elevation: 4,
   },
-  fabText: { color: '#fff', fontSize: 28, lineHeight: 30 },
+  fabText: { fontFamily: fonts.sans, fontSize: 28, lineHeight: 30 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -307,19 +311,20 @@ const styles = StyleSheet.create({
     padding: 24,
     elevation: 8,
   },
-  modalTitle: { fontSize: 20, fontWeight: '700', marginBottom: 16 },
-  fieldLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  modalTitle: { fontFamily: fonts.sansBold, fontSize: 17, marginBottom: 16 },
+  fieldLabel: { ...sectionLabel, fontSize: 9.5, marginBottom: 8 },
   catScroll: { maxHeight: 50 },
   catRow: { flexDirection: 'row', gap: 8 },
   catChip: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 99,
+    borderWidth: 1,
   },
-  catChipText: { fontSize: 13, fontWeight: '500' },
+  catChipText: { fontFamily: fonts.sans, fontSize: 12.5 },
   input: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontFamily: fonts.monoMedium,
+    fontSize: 16,
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
@@ -331,11 +336,11 @@ const styles = StyleSheet.create({
     marginTop: 20,
     gap: 16,
   },
-  cancelText: { fontSize: 14, fontWeight: '500' },
+  cancelText: { fontFamily: fonts.sansMedium, fontSize: 13 },
   saveBtn: {
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 15,
   },
-  saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  saveBtnText: { fontFamily: fonts.sansBold, fontSize: 13 },
 });

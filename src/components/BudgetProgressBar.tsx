@@ -3,6 +3,7 @@ import { StyleSheet, View, Text } from 'react-native';
 import { formatCurrency } from '@/src/utils/currency';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { fonts } from '@/constants/Type';
 
 interface Props {
   categoryName: string;
@@ -12,6 +13,7 @@ interface Props {
   compact?: boolean;
 }
 
+// Thin-track budget bar: sage on track → gold approaching → terracotta over.
 export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, compact }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
@@ -20,7 +22,7 @@ export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, co
   const isOverBudget = spent > limit;
   const isWarning = progress > 0.8 && !isOverBudget;
 
-  const barColor = isOverBudget ? colors.expense : isWarning ? '#E6A23C' : colors.income;
+  const barColor = isOverBudget ? colors.expense : isWarning ? colors.gold : colors.income;
   const remaining = limit - spent;
 
   if (compact) {
@@ -30,25 +32,25 @@ export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, co
           <Text style={[styles.compactName, { color: colors.text }]} numberOfLines={1}>
             {categoryIcon ? `${categoryIcon} ` : ''}{categoryName}
           </Text>
-          <Text style={[styles.compactAmount, { color: isOverBudget ? colors.expense : colors.textSecondary }]}>
-            {Math.round((displayProgress) * 100)}%
+          <Text style={[styles.compactAmount, { color: isOverBudget ? colors.expense : colors.textTertiary }]}>
+            {Math.round(displayProgress * 100)}%
           </Text>
         </View>
-        <View style={[styles.barBg, { backgroundColor: colors.surfaceVariant, height: 6 }]}>
-          <View style={[styles.barFill, { width: `${displayProgress * 100}%`, backgroundColor: barColor, height: 6 }]} />
+        <View style={[styles.barBg, { backgroundColor: colors.surfaceVariant }]}>
+          <View style={[styles.barFill, { width: `${displayProgress * 100}%`, backgroundColor: barColor }]} />
         </View>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+    <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
       <View style={styles.header}>
         <Text style={[styles.name, { color: colors.text }]}>
           {categoryIcon ? `${categoryIcon} ` : ''}{categoryName}
         </Text>
-        <Text style={[styles.amounts, { color: colors.textSecondary }]}>
-          {formatCurrency(spent)} / {formatCurrency(limit)}
+        <Text style={[styles.amounts, { color: colors.textTertiary }]}>
+          <Text style={{ color: colors.text }}>{formatCurrency(spent)}</Text> / {formatCurrency(limit)}
         </Text>
       </View>
       <View style={[styles.barBg, { backgroundColor: colors.surfaceVariant }]}>
@@ -59,12 +61,14 @@ export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, co
           <Text style={[styles.footerText, { color: colors.expense }]}>
             Over by {formatCurrency(spent - limit)}
           </Text>
+        ) : isWarning ? (
+          <Text style={[styles.footerText, { color: colors.gold }]}>Approaching limit</Text>
         ) : (
-          <Text style={[styles.footerText, { color: colors.textSecondary }]}>
+          <Text style={[styles.footerText, { color: colors.income }]}>
             {formatCurrency(remaining)} remaining
           </Text>
         )}
-        <Text style={[styles.percentText, { color: isOverBudget ? colors.expense : colors.textSecondary }]}>
+        <Text style={[styles.percentText, { color: isOverBudget ? colors.expense : colors.textTertiary }]}>
           {Math.round(progress * 100)}%
         </Text>
       </View>
@@ -75,43 +79,45 @@ export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, co
 const styles = StyleSheet.create({
   container: {
     marginHorizontal: 13,
-    marginBottom: 8,
-    padding: 14,
-    borderRadius: 15,
+    marginBottom: 10,
+    paddingHorizontal: 15,
+    paddingTop: 14,
+    paddingBottom: 13,
+    borderRadius: 16,
     borderWidth: 1,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
+    alignItems: 'baseline',
+    marginBottom: 11,
   },
-  name: { fontSize: 15, fontWeight: '600', flex: 1 },
-  amounts: { fontSize: 12 },
+  name: { fontFamily: fonts.sansSemiBold, fontSize: 13.5, flex: 1 },
+  amounts: { fontFamily: fonts.mono, fontSize: 11.5 },
   barBg: {
-    height: 8,
-    borderRadius: 4,
+    height: 3,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   barFill: {
-    height: 8,
-    borderRadius: 4,
+    height: 3,
+    borderRadius: 3,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 8,
   },
-  footerText: { fontSize: 12 },
-  percentText: { fontSize: 12, fontWeight: '600' },
+  footerText: { fontFamily: fonts.sans, fontSize: 10.5 },
+  percentText: { fontFamily: fonts.mono, fontSize: 10.5 },
   compactContainer: {
-    marginBottom: 10,
+    marginBottom: 12,
   },
   compactHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 5,
   },
-  compactName: { fontSize: 13, fontWeight: '500', flex: 1 },
-  compactAmount: { fontSize: 12, fontWeight: '600' },
+  compactName: { fontFamily: fonts.sansMedium, fontSize: 12.5, flex: 1 },
+  compactAmount: { fontFamily: fonts.mono, fontSize: 11 },
 });
