@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { parseSms, isFromKnownBank } from './dispatcher';
 import { readSmsInbox, getMockSmsData } from './reader';
 import { RawSms } from './types';
-import { upsertAccount, getAccountsByBank } from '@/src/db/repository/accounts';
+import { upsertAccount, getAccountsByBank, getAllAccounts } from '@/src/db/repository/accounts';
 import { insertTransaction } from '@/src/db/repository/transactions';
 import { insertBalanceSnapshot } from '@/src/db/repository/balanceSnapshots';
 import { checkReconciliation } from '@/src/reconciliation/engine';
@@ -15,6 +15,36 @@ interface SyncResult {
   skippedDuplicates: number;
   parseErrors: number;
   gaps: number;
+}
+
+/** Visible digit tail of an account number: "1***1807" → "1807", full numbers unchanged. */
+function accountDigitTail(accountNumber: string): string {
+  const parts = accountNumber.split(/\*+/);
+  return parts[parts.length - 1] ?? '';
+}
+
+/**
+ * If a parsed transaction carries the other side's full account/phone number,
+ * check it against the user's own accounts — a suffix match (≥4 digits) means
+ * this is a transfer between the user's own accounts across banks, e.g.
+ * telebirr → own CBE ("...account number 1000495221807" vs mask "1***1807").
+ * Returns the own-transfer counterparty label, or null.
+ */
+async function resolveOwnTransferLabel(
+  db: any,
+  counterpartyAccountNo: string,
+  ownAccountId: string
+): Promise<string | null> {
+  const allAccounts = await getAllAccounts(db);
+  for (const acct of allAccounts) {
+    if (acct.id === ownAccountId) continue;
+    const tail = accountDigitTail(acct.accountNumber);
+    if (tail.length < 4 || counterpartyAccountNo.length < 4) continue;
+    if (counterpartyAccountNo.endsWith(tail) || tail.endsWith(counterpartyAccountNo)) {
+      return `Own account ${acct.accountNumber}`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -88,6 +118,14 @@ export async function syncSms(db: any, useMockData: boolean = false): Promise<Sy
       latestBalanceAt: parsed.date,
     });
 
+    // Cross-bank own transfer? Relabel so it reads (and aggregates) like the
+    // in-bank "Own account X" legs the parsers label directly.
+    let counterparty = parsed.counterparty;
+    if (parsed.counterpartyAccountNo && !counterparty?.startsWith('Own account')) {
+      const ownLabel = await resolveOwnTransferLabel(db, parsed.counterpartyAccountNo, accountId);
+      if (ownLabel) counterparty = ownLabel;
+    }
+
     // Insert transaction (returns null if duplicate)
     const txnId = await insertTransaction(db, {
       accountId,
@@ -98,7 +136,7 @@ export async function syncSms(db: any, useMockData: boolean = false): Promise<Sy
       vat: parsed.vat,
       disasterFund: parsed.disasterFund,
       balanceAfter: parsed.balanceAfter,
-      counterparty: parsed.counterparty,
+      counterparty,
       referenceNo: parsed.referenceNo,
       date: parsed.date,
       rawSms: parsed.rawSms,
@@ -138,7 +176,7 @@ export async function syncSms(db: any, useMockData: boolean = false): Promise<Sy
     }
 
     // Auto-categorize
-    const categoryId = await autoCategorize(db, parsed.counterparty, parsed.rawSms);
+    const categoryId = await autoCategorize(db, counterparty, parsed.rawSms);
     if (categoryId) {
       await updateTransactionCategory(db, txnId, categoryId);
     }

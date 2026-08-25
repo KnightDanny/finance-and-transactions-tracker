@@ -1,8 +1,20 @@
-import { eq, and, desc, gte, lte, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, sql, inArray, isNull, notLike, or } from 'drizzle-orm';
 import { generateId as uuid } from '@/src/utils/id';
 import { transactions, accounts, categories } from '../schema';
 
 type Database = any;
+
+/**
+ * Excludes transfers between the user's own accounts from income/expense
+ * aggregates — moving your own money is not earning or spending. Parsers and
+ * sync label such legs with a counterparty starting "Own account".
+ * (NULL check required: SQL `NULL NOT LIKE x` is NULL, which would drop
+ * counterparty-less rows from the aggregates.)
+ */
+const notOwnTransfer = or(
+  isNull(transactions.counterparty),
+  notLike(transactions.counterparty, 'Own account%')
+);
 
 export interface InsertTransaction {
   accountId: string;
@@ -199,7 +211,8 @@ export async function getMonthlySpendingByCategory(db: Database, month: string) 
       and(
         eq(transactions.type, 'debit'),
         gte(transactions.date, startDate),
-        lte(transactions.date, endDate)
+        lte(transactions.date, endDate),
+        notOwnTransfer
       )
     )
     .groupBy(transactions.categoryId);
@@ -220,7 +233,8 @@ export async function getSpendingSummary(
       and(
         eq(transactions.type, 'credit'),
         gte(transactions.date, startDate),
-        lte(transactions.date, endDate)
+        lte(transactions.date, endDate),
+        notOwnTransfer
       )
     );
 
@@ -234,7 +248,8 @@ export async function getSpendingSummary(
       and(
         eq(transactions.type, 'debit'),
         gte(transactions.date, startDate),
-        lte(transactions.date, endDate)
+        lte(transactions.date, endDate),
+        notOwnTransfer
       )
     );
 
@@ -265,7 +280,8 @@ export async function getSpendingByCategory(
       and(
         eq(transactions.type, 'debit'),
         gte(transactions.date, startDate),
-        lte(transactions.date, endDate)
+        lte(transactions.date, endDate),
+        notOwnTransfer
       )
     )
     .groupBy(transactions.categoryId)

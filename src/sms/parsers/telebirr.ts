@@ -8,6 +8,10 @@ export class TeleBirrParser implements BankParser {
   canParse(smsBody: string, senderAddress: string): boolean {
     const lowerAddr = senderAddress.toLowerCase();
     const lowerBody = smsBody.toLowerCase();
+    // HuluBeje (merchant aggregator) sends its own receipt for QR/OTP payments,
+    // mentioning telebirr — but telebirr also sends one, so parsing both would
+    // double-count. The HuluBeje copy has no balance anyway.
+    if (lowerAddr.includes('hulubeje')) return false;
     return lowerAddr.includes('telebirr') || lowerBody.includes('telebirr');
   }
 
@@ -44,7 +48,10 @@ export class TeleBirrParser implements BankParser {
       lowerBody.includes('transfered') ||
       lowerBody.includes('debited') ||
       lowerBody.includes('you have paid') ||
-      lowerBody.includes('recharged')
+      lowerBody.includes('recharged') ||
+      // ATM cash-out: "The request to withdraw ETB X ... is successfully completed"
+      // ("completed" guard keeps pending/failed withdrawal requests out)
+      (lowerBody.includes('request to withdraw') && lowerBody.includes('successfully completed'))
     ) {
       type = 'debit';
     } else {
@@ -89,6 +96,11 @@ export class TeleBirrParser implements BankParser {
     // Person-to-person transfers and payments don't include sender account
     // sync.ts will look up the existing TeleBirr account
 
+    // Full destination account when transferring to a bank — lets sync.ts
+    // recognize transfers into the user's OWN bank account (last digits of the
+    // full number match the masked account's visible tail)
+    const counterpartyAccountNo = body.match(/account\s+number\s+(\d{6,})/i)?.[1];
+
     // Extract counterparty
     let counterparty: string | undefined;
     if (type === 'credit') {
@@ -103,28 +115,21 @@ export class TeleBirrParser implements BankParser {
       }
     } else {
       // Debit counterparty extraction:
-      // Format 1: "transferred ETB X to Name (phone) on"
-      const toPersonMatch = body.match(/to\s+([^(]+?)(?:\s*\(|\s+on\s+\d)/i);
-      if (toPersonMatch) {
-        counterparty = toPersonMatch[1].trim();
-        // Clean up ETB amounts and "successfully from your telebirr account..."
-        counterparty = counterparty.replace(/ETB\s?[\d,]+(?:\.\d{0,2})?/gi, '').trim();
-        counterparty = counterparty.replace(/successfully\s+from\s+.*/i, '').trim();
+      // Format 0a: ATM cash-out — "using Bank of Abyssinia ATM" (before the generic
+      // to-match, which would capture junk from "to withdraw ETB X from your...")
+      if (lowerBody.includes('request to withdraw')) {
+        const atmMatch = body.match(/using\s+(.+?)\s+ATM/i);
+        counterparty = atmMatch ? `${atmMatch[1].trim()} ATM` : 'ATM Withdrawal';
       }
 
-      // Format 2: "paid ETB X for goods purchased from XXXX - MERCHANT NAME on"
+      // Format 0b: bill payment — "to pay bill for 803187867 on"
       if (!counterparty) {
-        const merchantMatch = body.match(/purchased\s+from\s+\S+\s+-\s+(.+?)\s+on\s+\d/i);
-        if (merchantMatch) counterparty = merchantMatch[1].trim();
+        const billMatch = body.match(/to\s+pay\s+bill\s+for\s+(\d+)/i);
+        if (billMatch) counterparty = `Bill ${billMatch[1]}`;
       }
 
-      // Format 3: "paid ETB X for package PACKAGE_NAME purchase made for"
-      if (!counterparty) {
-        const packageMatch = body.match(/for\s+package\s+(.+?)\s+purchase\s+made/i);
-        if (packageMatch) counterparty = packageMatch[1].trim();
-      }
-
-      // Format 4: "transferred ETB X to BANK account number XXXX"
+      // Format 1: "transferred ETB X to BANK account number XXXX" — before the
+      // generic person-match, which would drag "account number ..." into the name
       if (!counterparty) {
         const toBankMatch = body.match(/to\s+(.+?)\s+account\s+number/i);
         if (toBankMatch) {
@@ -132,6 +137,29 @@ export class TeleBirrParser implements BankParser {
           counterparty = counterparty.replace(/ETB\s?[\d,]+(?:\.\d{0,2})?/gi, '').trim();
           counterparty = counterparty.replace(/successfully\s+from\s+.*/i, '').trim();
         }
+      }
+
+      // Format 2: "transferred ETB X to Name (phone) on"
+      const toPersonMatch = counterparty
+        ? null
+        : body.match(/to\s+([^(]+?)(?:\s*\(|\s+on\s+\d)/i);
+      if (toPersonMatch) {
+        counterparty = toPersonMatch[1].trim();
+        // Clean up ETB amounts and "successfully from your telebirr account..."
+        counterparty = counterparty.replace(/ETB\s?[\d,]+(?:\.\d{0,2})?/gi, '').trim();
+        counterparty = counterparty.replace(/successfully\s+from\s+.*/i, '').trim();
+      }
+
+      // Format 3: "paid ETB X for goods purchased from XXXX - MERCHANT NAME on"
+      if (!counterparty) {
+        const merchantMatch = body.match(/purchased\s+from\s+\S+\s+-\s+(.+?)\s+on\s+\d/i);
+        if (merchantMatch) counterparty = merchantMatch[1].trim();
+      }
+
+      // Format 4: "paid ETB X for package PACKAGE_NAME purchase made for"
+      if (!counterparty) {
+        const packageMatch = body.match(/for\s+package\s+(.+?)\s+purchase\s+made/i);
+        if (packageMatch) counterparty = packageMatch[1].trim();
       }
 
       // Format 5: "recharged ETB X airtime for PHONE"
@@ -147,9 +175,9 @@ export class TeleBirrParser implements BankParser {
     if (txnMatch) {
       referenceNo = txnMatch[1];
     } else {
-      // "by transaction number XXXX"
-      const byTxnMatch = body.match(/by\s+transaction\s+number\s+(\w+)/i);
-      if (byTxnMatch) referenceNo = byTxnMatch[1];
+      // "by transaction number XXXX" / "with transaction number XXXX is" (ATM cash-out)
+      const inlineTxnMatch = body.match(/(?:by|with)\s+transaction\s+number\s+(\w+)/i);
+      if (inlineTxnMatch) referenceNo = inlineTxnMatch[1];
     }
 
     // Extract date — fall back to SMS timestamp if no date in body
@@ -169,6 +197,7 @@ export class TeleBirrParser implements BankParser {
       balanceAfter,
       accountNumber,
       counterparty,
+      counterpartyAccountNo,
       referenceNo,
       date,
       rawSms: body,

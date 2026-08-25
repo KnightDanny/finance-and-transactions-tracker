@@ -6,8 +6,10 @@ export interface RawSms {
   read: number;
 }
 
+export type BankId = 'CBE' | 'TELEBIRR' | 'BOA' | 'AWASH';
+
 export interface ParsedTransaction {
-  bank: 'CBE' | 'TELEBIRR';
+  bank: BankId;
   type: 'credit' | 'debit';
   amount: number;           // principal amount
   totalAmount?: number;     // amount + service charges (for debits)
@@ -17,6 +19,13 @@ export interface ParsedTransaction {
   balanceAfter: number;
   accountNumber?: string;
   counterparty?: string;
+  /**
+   * Full account/phone number of the OTHER side when the SMS carries one
+   * (e.g. "to Commercial Bank of Ethiopia account number 1000495221807",
+   * "credited with ETB X to 933563343"). sync.ts matches it against the
+   * user's own accounts to relabel cross-bank own transfers.
+   */
+  counterpartyAccountNo?: string;
   referenceNo?: string;
   date: string;             // ISO date YYYY-MM-DD
   rawSms: string;
@@ -24,7 +33,7 @@ export interface ParsedTransaction {
 }
 
 export interface BankParser {
-  bankName: 'CBE' | 'TELEBIRR';
+  bankName: BankId;
   canParse(smsBody: string, senderAddress: string): boolean;
   parse(sms: RawSms): ParsedTransaction | null;
 }
