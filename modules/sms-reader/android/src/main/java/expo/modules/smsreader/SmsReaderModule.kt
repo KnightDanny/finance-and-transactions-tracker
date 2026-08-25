@@ -16,9 +16,12 @@ class SmsReaderModule : Module() {
       val contentResolver: ContentResolver = context.contentResolver
       val smsList = mutableListOf<Map<String, Any>>()
 
-      val uri = Uri.parse("content://sms/inbox")
+      // Query content://sms with type=1 (received) rather than content://sms/inbox:
+      // Samsung/OneUI message categorization hides some senders (e.g. "Awash Bank")
+      // from the /inbox URI even though they are ordinary received SMS.
+      val uri = Uri.parse("content://sms")
       val projection = arrayOf("_id", "address", "body", "date", "read")
-      val selection = if (afterTimestamp > 0) "date > ?" else null
+      val selection = if (afterTimestamp > 0) "type = 1 AND date > ?" else "type = 1"
       val selectionArgs = if (afterTimestamp > 0) arrayOf(afterTimestamp.toString()) else null
       val sortOrder = "date ASC"
 
