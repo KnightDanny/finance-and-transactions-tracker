@@ -17,7 +17,8 @@ export const accounts = sqliteTable('accounts', {
 export const categories = sqliteTable('categories', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
-  icon: text('icon'),
+  icon: text('icon'), // emoji character
+  color: text('color'), // '#RRGGBB', optional — pie/legend tint
   type: text('type').notNull().default('expense'), // 'expense' | 'income'
   isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
 });
@@ -42,6 +43,9 @@ export const transactions = sqliteTable('transactions', {
   source: text('source').notNull().default('sms'), // 'sms' | 'manual' | 'reconciliation'
   isReconciled: integer('is_reconciled', { mode: 'boolean' }).notNull().default(true),
   note: text('note'),
+  // Set when the user marks this transaction as a loan: credit → borrowed,
+  // debit → lent. The loan record is created from the transaction.
+  loanId: text('loan_id'),
   createdAt: text('created_at').notNull().default(new Date().toISOString()),
 }, (table) => [
   uniqueIndex('transactions_ref_account_idx').on(table.referenceNo, table.accountId),
@@ -92,4 +96,26 @@ export const reconciliationGaps = sqliteTable('reconciliation_gaps', {
 export const smsSyncState = sqliteTable('sms_sync_state', {
   id: integer('id').primaryKey().default(1),
   lastSyncedAt: integer('last_synced_at').notNull().default(0),
+});
+
+// ── Loans (money lent to / borrowed from people) ──────────
+export const loans = sqliteTable('loans', {
+  id: text('id').primaryKey(),
+  person: text('person').notNull(),
+  direction: text('direction').notNull(), // 'lent' | 'borrowed'
+  principal: real('principal').notNull(),
+  note: text('note'),
+  startDate: text('start_date').notNull(), // ISO date
+  dueDate: text('due_date'), // ISO date, optional
+  archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull().default(new Date().toISOString()),
+});
+
+// ── Loan Payments (repayments/collections against a loan) ─
+export const loanPayments = sqliteTable('loan_payments', {
+  id: text('id').primaryKey(),
+  loanId: text('loan_id').notNull().references(() => loans.id),
+  amount: real('amount').notNull(),
+  date: text('date').notNull(), // ISO date
+  note: text('note'),
 });

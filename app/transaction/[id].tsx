@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, ScrollView, View, Text, TextInput, TouchableOpacity } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { StyleSheet, ScrollView, View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
 import {
   getTransactionById,
@@ -8,6 +8,7 @@ import {
   updateTransactionNote,
   updateTransactionCounterparty,
 } from '@/src/db/repository/transactions';
+import { markTransactionAsLoan, unmarkTransactionAsLoan } from '@/src/db/repository/loans';
 import { getAllCategories } from '@/src/db/repository/budgets';
 import { formatCurrency } from '@/src/utils/currency';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -15,6 +16,7 @@ import Colors from '@/constants/Colors';
 
 export default function TransactionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const db = useDatabase();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
@@ -48,6 +50,43 @@ export default function TransactionDetailScreen() {
     counterparty !== (txn?.counterparty ?? '') ||
     note !== (txn?.note ?? '') ||
     selectedCategoryId !== (txn?.categoryId ?? '');
+
+  const handleMarkLoan = async () => {
+    if (!txn) return;
+    const direction = txn.type === 'credit' ? 'borrowed' : 'lent';
+    const who = counterparty.trim() || txn.counterparty || 'Unknown';
+    const loanId = await markTransactionAsLoan(db, {
+      id: txn.id,
+      type: txn.type,
+      amount: txn.amount,
+      counterparty: who,
+      date: txn.date,
+    });
+    setTxn({ ...txn, loanId });
+    Alert.alert(
+      'Marked as Loan',
+      direction === 'borrowed'
+        ? `Recorded as borrowed from ${who}. It now counts against your net worth.`
+        : `Recorded as lent to ${who}. It now counts toward your net worth.`
+    );
+  };
+
+  const handleUnmarkLoan = () => {
+    if (!txn?.loanId) return;
+    Alert.alert(
+      'Remove Loan?',
+      'The loan record and any payments logged against it will be deleted. The transaction itself stays.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove', style: 'destructive', onPress: async () => {
+            await unmarkTransactionAsLoan(db, txn.id, txn.loanId);
+            setTxn({ ...txn, loanId: null });
+          },
+        },
+      ]
+    );
+  };
 
   const handleSave = async () => {
     if (!txn) return;
@@ -143,6 +182,38 @@ export default function TransactionDetailScreen() {
         </View>
       </View>
 
+      {/* Loan marking — credit = borrowed, debit = lent */}
+      <View style={styles.editSection}>
+        <Text style={[styles.editLabel, { color: colors.text }]}>Loan</Text>
+        {txn.loanId ? (
+          <View style={[styles.loanCard, { borderColor: isDark ? '#444' : '#ddd' }]}>
+            <Text style={[styles.loanText, { color: colors.text }]}>
+              {isCredit ? 'Borrowed from' : 'Lent to'} {txn.counterparty || 'Unknown'}
+            </Text>
+            <View style={styles.loanActions}>
+              <TouchableOpacity onPress={() => router.push('/loans' as any)}>
+                <Text style={styles.loanLink}>View loans</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleUnmarkLoan}>
+                <Text style={styles.loanRemove}>Unmark</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.loanCard, { borderColor: isDark ? '#444' : '#ddd' }]}
+            onPress={handleMarkLoan}
+          >
+            <Text style={[styles.loanText, { color: colors.text }]}>Mark as loan</Text>
+            <Text style={[styles.loanHint, { color: isDark ? '#888' : '#999' }]}>
+              {isCredit
+                ? `Money received = borrowed from ${counterparty.trim() || 'this person'}`
+                : `Money sent = lent to ${counterparty.trim() || 'this person'}`}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
       {/* Editable note */}
       <View style={styles.editSection}>
         <Text style={[styles.editLabel, { color: colors.text }]}>Note</Text>
@@ -216,6 +287,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#2f95dc',
   },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  loanCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  loanText: { fontSize: 14, fontWeight: '500' },
+  loanHint: { fontSize: 12, marginTop: 3 },
+  loanActions: { flexDirection: 'row', gap: 20, marginTop: 8 },
+  loanLink: { color: '#2f95dc', fontSize: 13, fontWeight: '500' },
+  loanRemove: { color: '#e74c3c', fontSize: 13, fontWeight: '500' },
   rawSmsSection: { margin: 16, marginTop: 24 },
   rawSmsLabel: { fontSize: 14, fontWeight: '600', marginBottom: 8 },
   rawSmsText: { fontSize: 12, opacity: 0.7, lineHeight: 18 },

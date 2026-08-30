@@ -114,7 +114,31 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
           id INTEGER PRIMARY KEY DEFAULT 1,
           last_synced_at INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS loans (
+          id TEXT PRIMARY KEY,
+          person TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          principal REAL NOT NULL,
+          note TEXT,
+          start_date TEXT NOT NULL,
+          due_date TEXT,
+          archived INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS loan_payments (
+          id TEXT PRIMARY KEY,
+          loan_id TEXT NOT NULL REFERENCES loans(id),
+          amount REAL NOT NULL,
+          date TEXT NOT NULL,
+          note TEXT
+        );
       `);
+
+      // v1.1 column additions for databases created before them (no-op if present)
+      try { await sqlite.execAsync('ALTER TABLE categories ADD COLUMN color TEXT'); } catch {}
+      try { await sqlite.execAsync('ALTER TABLE transactions ADD COLUMN loan_id TEXT'); } catch {}
 
       // Seed default categories
       await seedDefaultCategories(database);
