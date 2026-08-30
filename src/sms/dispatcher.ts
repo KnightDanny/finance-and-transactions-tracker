@@ -37,3 +37,15 @@ export function parseSms(sms: RawSms): ParsedTransaction | null {
 export function isFromKnownBank(sms: RawSms): boolean {
   return parsers.some((p) => p.canParse(sms.body, sms.address));
 }
+
+/**
+ * Heuristic: does this bank SMS look like it carries a transaction at all?
+ * Bank senders also send OTPs, promos, and service notices — those failing to
+ * parse is expected, not an error worth surfacing to the user.
+ */
+export function looksLikeTransaction(body: string): boolean {
+  return (
+    /ETB\s?\d/i.test(body) &&
+    /credit|debit|transfer|received|paid|withdraw/i.test(body)
+  );
+}

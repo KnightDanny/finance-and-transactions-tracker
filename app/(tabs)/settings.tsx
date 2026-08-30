@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity, Alert, ActivityIndicator, Switch } from 'react-native';
+import {
+  StyleSheet, ScrollView, View, Text, TouchableOpacity, Alert, ActivityIndicator, Switch,
+  Modal, Pressable,
+} from 'react-native';
+import { useRouter } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
 import { syncSms } from '@/src/sms/sync';
+import { countTransactionsBefore } from '@/src/db/repository/transactions';
+import { exportTransactionsCsv } from '@/src/utils/exportCsv';
 import { useAuthStore } from '@/src/auth/store';
 import { isBiometricAvailable } from '@/src/auth/biometric';
 import { PasscodeSetup } from '@/src/components/PasscodeSetup';
+import { CalendarPicker } from '@/src/components/CalendarPicker';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
@@ -16,13 +23,34 @@ const TIMEOUT_OPTIONS = [
   { label: '5 minutes', value: 300 },
 ];
 
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function daysAgoStr(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return toDateStr(d);
+}
+
+/** Empty string = all messages. Chips fill the date input; user can still type any date. */
+const SYNC_PRESETS: { label: string; date: () => string }[] = [
+  { label: '30 days', date: () => daysAgoStr(30) },
+  { label: '3 months', date: () => daysAgoStr(90) },
+  { label: 'This year', date: () => `${new Date().getFullYear()}-01-01` },
+  { label: 'All time', date: () => '' },
+];
+
 export default function SettingsScreen() {
   const db = useDatabase();
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
   const isDark = colorScheme === 'dark';
   const [syncStatus, setSyncStatus] = useState<string>('Not synced');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncFromDate, setSyncFromDate] = useState('');
 
   const {
     isPasscodeSet, isBiometricEnabled, lockTimeoutSeconds,
@@ -38,14 +66,15 @@ export default function SettingsScreen() {
     isBiometricAvailable().then(setHasBiometricHardware);
   }, []);
 
-  const handleSyncSms = async () => {
+  const handleSyncSms = async (fromTimestamp?: number) => {
     if (isSyncing) return;
     setIsSyncing(true);
     setSyncStatus('Syncing...');
     try {
-      const result = await syncSms(db);
+      const result = await syncSms(db, false, fromTimestamp);
       setSyncStatus(
         `Synced: ${result.newTransactions} new, ${result.skippedDuplicates} skipped` +
+        (result.removedOld > 0 ? `, ${result.removedOld} old removed` : '') +
         (result.gaps > 0 ? `, ${result.gaps} balance gaps detected` : '') +
         (result.parseErrors > 0 ? `, ${result.parseErrors} parse errors` : '')
       );
@@ -57,6 +86,57 @@ export default function SettingsScreen() {
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  const startSyncFromDate = async () => {
+    const date = syncFromDate.trim();
+    if (!date) {
+      // Empty = full sync, nothing removed — confirm so it's never a surprise
+      Alert.alert(
+        'Sync all messages',
+        'No start date set. Your full SMS history will be imported and nothing will be removed.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sync All', onPress: () => {
+              setShowSyncModal(false);
+              handleSyncSms(0);
+            },
+          },
+        ]
+      );
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      Alert.alert('Invalid date', 'Start date must be YYYY-MM-DD.');
+      return;
+    }
+    const [y, m, d] = date.split('-').map(Number);
+    const parsed = new Date(y, m - 1, d);
+    // Reject rollovers like 2026-02-31 → Mar 3
+    if (parsed.getFullYear() !== y || parsed.getMonth() !== m - 1 || parsed.getDate() !== d) {
+      Alert.alert('Invalid date', `${date} is not a real date.`);
+      return;
+    }
+    const fromTimestamp = parsed.getTime();
+    // Dated sync re-baselines the app — say exactly how much is going away
+    const removeCount = await countTransactionsBefore(db, date);
+    Alert.alert(
+      `Sync from ${date}`,
+      (removeCount > 0
+        ? `${removeCount} transaction${removeCount === 1 ? '' : 's'} before ${date} will be REMOVED from the app. `
+        : 'No existing transactions predate this. ') +
+        `SMS from ${date} onward will then be imported. Continue?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: removeCount > 0 ? 'Remove & Sync' : 'Sync', style: 'destructive', onPress: () => {
+            setShowSyncModal(false);
+            handleSyncSms(fromTimestamp);
+          },
+        },
+      ]
+    );
   };
 
   const handleSetupPasscode = async (pin: string) => {
@@ -131,14 +211,34 @@ export default function SettingsScreen() {
 
   const menuItems = [
     {
-      title: 'Sync SMS',
+      title: 'Sync from Date',
       subtitle: isSyncing ? 'Syncing...' : syncStatus,
-      onPress: handleSyncSms,
+      onPress: () => {
+        if (isSyncing) return;
+        // Open unselected — the calendar shows the current month and the user
+        // picks a day or a preset chip
+        setSyncFromDate('');
+        setShowSyncModal(true);
+      },
       showSpinner: isSyncing,
+    },
+    {
+      title: 'Export Transactions (CSV)',
+      subtitle: 'All transactions, sorted by date',
+      onPress: async () => {
+        try {
+          const count = await exportTransactionsCsv(db);
+          if (count !== null) Alert.alert('Exported', `${count} transactions written to CSV.`);
+        } catch (e: any) {
+          Alert.alert('Export Failed', e.message);
+        }
+      },
     },
     { title: 'Backup to Google Drive', subtitle: 'Not configured', onPress: () => Alert.alert('Backup', 'Coming soon.') },
     { title: 'Restore from Backup', subtitle: 'Restore data from Google Drive', onPress: () => Alert.alert('Backup', 'Coming soon.') },
-    { title: 'Manage Categories', subtitle: 'Edit transaction categories', onPress: () => {} },
+    { title: 'Customize Dashboard', subtitle: 'Choose which sections show on Home', onPress: () => router.push('/customize-dashboard' as any) },
+    { title: 'Loans', subtitle: 'Money lent and borrowed', onPress: () => router.push('/loans' as any) },
+    { title: 'Manage Categories', subtitle: 'Add, edit, and delete categories', onPress: () => router.push('/manage-categories' as any) },
     { title: 'Manage Accounts', subtitle: 'Label and organize accounts', onPress: () => {} },
   ];
 
@@ -176,7 +276,7 @@ export default function SettingsScreen() {
         >
           <View style={styles.menuTextGroup}>
             <Text style={[styles.menuTitle, { color: colors.text }]}>Set Up Passcode</Text>
-            <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Protect your app with a 4-digit PIN</Text>
+            <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Protect your app with a 6-digit PIN</Text>
           </View>
         </TouchableOpacity>
       ) : (
@@ -187,7 +287,7 @@ export default function SettingsScreen() {
           >
             <View style={styles.menuTextGroup}>
               <Text style={[styles.menuTitle, { color: colors.text }]}>Change Passcode</Text>
-              <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Set a new 4-digit PIN</Text>
+              <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Set a new 6-digit PIN</Text>
             </View>
           </TouchableOpacity>
 
@@ -234,6 +334,63 @@ export default function SettingsScreen() {
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: colors.textTertiary }]}>Budget Tracker v1.0.0</Text>
       </View>
+
+      {/* Sync-from-date modal */}
+      <Modal visible={showSyncModal} transparent animationType="fade" onRequestClose={() => setShowSyncModal(false)}>
+          <Pressable style={styles.overlay} onPress={() => setShowSyncModal(false)}>
+            <View
+              style={[styles.modal, { backgroundColor: colors.surface, borderColor: colors.hairlineStrong }]}
+              onStartShouldSetResponder={() => true}
+            >
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Sync from Date</Text>
+              <Text style={[styles.modalHint, { color: colors.textTertiary }]}>
+                Imports bank SMS from the picked date onward — and removes anything older from the app. All time syncs everything and removes nothing.
+              </Text>
+
+              <View style={styles.chipRow}>
+                {SYNC_PRESETS.map((preset) => {
+                  const value = preset.date();
+                  const active = syncFromDate === value;
+                  return (
+                    <TouchableOpacity
+                      key={preset.label}
+                      style={[styles.chip, {
+                        backgroundColor: active ? colors.goldDim : colors.surfaceVariant,
+                        borderColor: active ? colors.hairlineStrong : 'transparent',
+                      }]}
+                      onPress={() => setSyncFromDate(value)}
+                    >
+                      <Text style={[styles.chipText, { color: active ? colors.gold : colors.textSecondary }]}>
+                        {preset.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <CalendarPicker value={syncFromDate || null} onChange={setSyncFromDate} />
+              <Text style={[styles.selectedLine, { color: colors.textSecondary }]}>
+                {syncFromDate ? (
+                  <>Start: <Text style={[styles.mono, { color: colors.gold }]}>{syncFromDate}</Text></>
+                ) : (
+                  'No start date — all messages, nothing removed'
+                )}
+              </Text>
+
+              <View style={styles.actions}>
+                <TouchableOpacity onPress={() => setShowSyncModal(false)}>
+                  <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: colors.gold }]}
+                  onPress={startSyncFromDate}
+                >
+                  <Text style={[styles.saveText, { color: isDark ? '#0C0B09' : '#FFFDF8' }]}>Sync</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -267,4 +424,17 @@ const styles = StyleSheet.create({
   menuSubtitle: { fontFamily: fonts.sans, fontSize: 11, marginTop: 2.5 },
   footer: { padding: 28, alignItems: 'center' },
   footerText: { fontFamily: fonts.mono, fontSize: 10.5 },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modal: { width: '100%', borderRadius: 20, borderWidth: 1, padding: 22 },
+  modalTitle: { fontFamily: fonts.sansBold, fontSize: 17, marginBottom: 6 },
+  modalHint: { fontFamily: fonts.sans, fontSize: 11.5, lineHeight: 16, marginBottom: 14 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 99, borderWidth: 1 },
+  chipText: { fontFamily: fonts.sansSemiBold, fontSize: 12.5 },
+  selectedLine: { fontFamily: fonts.sans, fontSize: 11.5, marginTop: 10 },
+  mono: { fontFamily: fonts.monoMedium },
+  actions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 20, marginTop: 20 },
+  cancelText: { fontFamily: fonts.sansMedium, fontSize: 13 },
+  saveBtn: { paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12 },
+  saveText: { fontFamily: fonts.sansBold, fontSize: 13 },
 });
