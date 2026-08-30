@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, lte, sql, inArray, isNull, notLike, or } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, lt, sql, inArray, isNull, isNotNull, notLike, like, or } from 'drizzle-orm';
 import { generateId as uuid } from '@/src/utils/id';
 import { transactions, accounts, categories } from '../schema';
 
@@ -15,6 +15,15 @@ const notOwnTransfer = or(
   isNull(transactions.counterparty),
   notLike(transactions.counterparty, 'Own account%')
 );
+
+/** How many transactions are dated before `isoDate` (YYYY-MM-DD). */
+export async function countTransactionsBefore(db: Database, isoDate: string): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(transactions)
+    .where(lt(transactions.date, isoDate));
+  return row?.n ?? 0;
+}
 
 export interface InsertTransaction {
   accountId: string;
@@ -118,6 +127,14 @@ export async function getTransactionsFiltered(
     categoryIds?: string[];
     startDate?: string;
     endDate?: string;
+    /** Free-text match on counterparty, reference, note, category name, or amount. */
+    search?: string;
+    minAmount?: number;
+    maxAmount?: number;
+    /** Match rows whose counterparty contains ANY of these strings. */
+    counterpartyLike?: string[];
+    /** Only transactions marked as loans (loan_id set). */
+    hasLoan?: boolean;
     limit?: number;
   }
 ) {
@@ -132,6 +149,28 @@ export async function getTransactionsFiltered(
   }
   if (filters.startDate) conditions.push(gte(transactions.date, filters.startDate));
   if (filters.endDate) conditions.push(lte(transactions.date, filters.endDate));
+  if (filters.minAmount != null) conditions.push(gte(transactions.amount, filters.minAmount));
+  if (filters.maxAmount != null) conditions.push(lte(transactions.amount, filters.maxAmount));
+  if (filters.counterpartyLike && filters.counterpartyLike.length > 0) {
+    conditions.push(
+      or(...filters.counterpartyLike.map((p) => like(transactions.counterparty, `%${p}%`)))!
+    );
+  }
+  if (filters.hasLoan) conditions.push(isNotNull(transactions.loanId));
+  if (filters.search?.trim()) {
+    const q = `%${filters.search.trim()}%`;
+    // LIKE is case-insensitive for ASCII in SQLite; category name lives on the
+    // joined table, which the where clause sees since it's applied post-join
+    conditions.push(
+      or(
+        like(transactions.counterparty, q),
+        like(transactions.referenceNo, q),
+        like(transactions.note, q),
+        like(categories.name, q),
+        sql`CAST(${transactions.amount} AS TEXT) LIKE ${q}`
+      )!
+    );
+  }
 
   let query = db
     .select({
@@ -271,6 +310,7 @@ export async function getSpendingByCategory(
       categoryId: transactions.categoryId,
       categoryName: sql<string>`COALESCE(${categories.name}, 'Uncategorized')`,
       categoryIcon: categories.icon,
+      categoryColor: categories.color,
       total: sql<number>`SUM(${transactions.amount})`,
       count: sql<number>`COUNT(*)`,
     })
