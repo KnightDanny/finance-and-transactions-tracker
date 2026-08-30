@@ -72,7 +72,7 @@ Grab the latest `.apk` from the [Releases page](https://github.com/KnightDanny/f
 - Ensures account balances stay accurate over time
 
 ### 🔒 Security
-- 4-digit passcode lock with SHA-256 hashing (salted)
+- 6-digit passcode lock with SHA-256 hashing (salted)
 - Biometric authentication (fingerprint)
 - Configurable auto-lock timeout (immediate, 30s, 1 min, 5 min)
 - Passcode stored in Android Keystore via Expo Secure Store

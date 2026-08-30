@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Vibration } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming } from 'react-native-reanimated';
-
-const PIN_LENGTH = 4;
+import { useAuthStore } from '@/src/auth/store';
+import { NEW_PASSCODE_LENGTH } from '@/src/auth/storage';
 
 interface Props {
   onComplete: (pin: string) => void;
@@ -15,6 +15,10 @@ export function PasscodeSetup({ onComplete, onCancel, mode = 'setup' }: Props) {
   const [pin, setPin] = useState('');
   const [firstPin, setFirstPin] = useState('');
   const [error, setError] = useState('');
+  const currentLength = useAuthStore((s) => s.passcodeLength);
+  // Verifying matches the passcode as saved (may be 4 digits on old installs);
+  // new passcodes are always NEW_PASSCODE_LENGTH
+  const pinLength = step === 'verify' ? currentLength : NEW_PASSCODE_LENGTH;
   const shakeX = useSharedValue(0);
 
   const shakeStyle = useAnimatedStyle(() => ({
@@ -41,7 +45,7 @@ export function PasscodeSetup({ onComplete, onCancel, mode = 'setup' }: Props) {
     setError('');
     setPin(newPin);
 
-    if (newPin.length === PIN_LENGTH) {
+    if (newPin.length === pinLength) {
       if (step === 'verify') {
         onComplete(newPin);
         setPin('');
@@ -69,7 +73,7 @@ export function PasscodeSetup({ onComplete, onCancel, mode = 'setup' }: Props) {
     setError('');
   };
 
-  const dots = Array.from({ length: PIN_LENGTH }, (_, i) => i < pin.length);
+  const dots = Array.from({ length: pinLength }, (_, i) => i < pin.length);
 
   return (
     <View style={styles.container}>

@@ -4,10 +4,9 @@ import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming } 
 import { useAuthStore } from '@/src/auth/store';
 import { authenticateWithBiometric } from '@/src/auth/biometric';
 
-const PIN_LENGTH = 4;
-
 export function LockScreen() {
-  const { verifyPasscode, unlock, isBiometricEnabled } = useAuthStore();
+  // Length of the passcode as it was saved — old installs may still be on 4 digits
+  const { verifyPasscode, unlock, isBiometricEnabled, passcodeLength } = useAuthStore();
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [attempts, setAttempts] = useState(0);
@@ -50,7 +49,7 @@ export function LockScreen() {
     setError('');
     setPin(newPin);
 
-    if (newPin.length === PIN_LENGTH) {
+    if (newPin.length === passcodeLength) {
       const valid = await verifyPasscode(newPin);
       if (valid) {
         unlock();
@@ -77,7 +76,7 @@ export function LockScreen() {
     setError('');
   };
 
-  const dots = Array.from({ length: PIN_LENGTH }, (_, i) => i < pin.length);
+  const dots = Array.from({ length: passcodeLength }, (_, i) => i < pin.length);
 
   return (
     <View style={styles.container}>

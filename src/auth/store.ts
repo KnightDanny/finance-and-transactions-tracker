@@ -6,6 +6,8 @@ interface AuthState {
   isPasscodeSet: boolean;
   isBiometricEnabled: boolean;
   lockTimeoutSeconds: number;
+  /** Digit count of the CURRENT passcode (old installs may still be on 4). */
+  passcodeLength: number;
   isLocked: boolean;
   isReady: boolean;
 
@@ -24,6 +26,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isPasscodeSet: false,
   isBiometricEnabled: false,
   lockTimeoutSeconds: 0,
+  passcodeLength: 4,
   isLocked: true,
   isReady: false,
 
@@ -38,7 +41,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setupPasscode: async (pin) => {
     await authStorage.savePasscode(pin);
-    set({ isPasscodeSet: true });
+    set({ isPasscodeSet: true, passcodeLength: pin.length });
   },
 
   verifyPasscode: async (pin) => {
@@ -49,6 +52,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const valid = await authStorage.verifyPasscode(oldPin);
     if (!valid) return false;
     await authStorage.savePasscode(newPin);
+    set({ passcodeLength: newPin.length });
     return true;
   },
 
