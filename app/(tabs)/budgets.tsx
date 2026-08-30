@@ -8,6 +8,7 @@ import { BudgetProgressBar } from '@/src/components/BudgetProgressBar';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
+import { PieDonut } from '@/src/components/PieDonut';
 
 export default function BudgetsScreen() {
   const db = useDatabase();
@@ -142,6 +143,46 @@ export default function BudgetsScreen() {
           </Text>
         </View>
 
+        {/* Spending distribution donut across budgeted categories */}
+        {budgets.length > 0 && totalSpent > 0 && (
+          <View style={[styles.donutCard, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
+            <Text style={[styles.donutTitle, { color: colors.textSecondary }]}>Where it went</Text>
+            <View style={{ alignItems: 'center' }}>
+              <PieDonut
+                slices={budgets
+                  .map((b: any, i: number) => ({
+                    value: spending[b.categoryId] ?? 0,
+                    color: b.categoryColor || DONUT_COLORS[i % DONUT_COLORS.length],
+                    key: b.id,
+                  }))
+                  .filter((sl: any) => sl.value > 0)}
+                size={168}
+                strokeWidth={20}
+              >
+                <Text style={[styles.donutPct, { color: isOverTotal ? colors.expense : colors.text }]}>
+                  {Math.round(totalProgress * 100)}%
+                </Text>
+                <Text style={[styles.donutPctLabel, { color: colors.textTertiary }]}>of budget</Text>
+              </PieDonut>
+            </View>
+            <View style={styles.legendWrap}>
+              {budgets.map((b: any, i: number) => {
+                const spent = spending[b.categoryId] ?? 0;
+                if (spent <= 0) return null;
+                const share = totalSpent > 0 ? Math.round((spent / totalSpent) * 100) : 0;
+                return (
+                  <View key={b.id} style={[styles.legendChip, { backgroundColor: colors.surfaceVariant }]}>
+                    <View style={[styles.legendDot, { backgroundColor: b.categoryColor || DONUT_COLORS[i % DONUT_COLORS.length] }]} />
+                    <Text style={[styles.legendText, { color: colors.textSecondary }]}>
+                      {b.categoryIcon ? `${b.categoryIcon} ` : ''}{b.categoryName} · {share}%
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         {/* Budget Items */}
         {budgets.length === 0 ? (
           <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
@@ -245,6 +286,11 @@ export default function BudgetsScreen() {
   );
 }
 
+const DONUT_COLORS = [
+  '#D4B96A', '#8FB573', '#C97B67', '#5E9BC9', '#8D6CAB',
+  '#C99667', '#7FAEA3', '#B08EA2', '#6577A0', '#98917F',
+];
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   monthSelector: {
@@ -277,6 +323,20 @@ const styles = StyleSheet.create({
   totalBar: { height: 3, borderRadius: 3, overflow: 'hidden', marginTop: 4 },
   totalBarFill: { height: 3, borderRadius: 3 },
   summaryRemaining: { fontFamily: fonts.sans, fontSize: 11, marginTop: 9 },
+  donutCard: {
+    marginHorizontal: 13, marginBottom: 16, paddingHorizontal: 16,
+    paddingTop: 15, paddingBottom: 14, borderRadius: 16, borderWidth: 1,
+  },
+  donutTitle: { ...sectionLabel, marginBottom: 14 },
+  donutPct: { fontFamily: fonts.monoMedium, fontSize: 21 },
+  donutPctLabel: { fontFamily: fonts.sansBold, fontSize: 8.5, letterSpacing: 1.3, textTransform: 'uppercase', marginTop: 3 },
+  legendWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 15, justifyContent: 'center' },
+  legendChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99,
+  },
+  legendDot: { width: 7, height: 7, borderRadius: 4 },
+  legendText: { fontFamily: fonts.sans, fontSize: 10.5 },
   emptyCard: {
     margin: 13,
     padding: 32,

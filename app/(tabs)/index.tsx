@@ -12,7 +12,10 @@ import { SpendingSummaryCards } from '@/src/components/SpendingSummaryCards';
 import { SpendingPieChart } from '@/src/components/SpendingPieChart';
 import { BudgetProgressBar } from '@/src/components/BudgetProgressBar';
 import { ReconciliationBanner } from '@/src/components/ReconciliationBanner';
+import { NetWorthCard } from '@/src/components/NetWorthCard';
+import { LoansCard } from '@/src/components/LoansCard';
 import { getUnresolvedGaps } from '@/src/reconciliation/engine';
+import { getLoans, LoanWithProgress } from '@/src/db/repository/loans';
 import { syncSms } from '@/src/sms/sync';
 import { SymbolView } from 'expo-symbols';
 import { Feather } from '@expo/vector-icons';
@@ -20,6 +23,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
 import { useBalancePrivacy, MASKED } from '@/src/state/balancePrivacy';
+import { useDashboardPrefs, DashboardSectionKey } from '@/src/state/dashboardPrefs';
 
 /** Group accounts by bank; richest bank first, richest account first within each. */
 function groupAccountsByBank(accounts: any[]): { bank: string; bankAccounts: any[] }[] {
@@ -67,13 +71,14 @@ export default function DashboardScreen() {
   const [categorySpending, setCategorySpending] = useState<any[]>([]);
   const [budgets, setBudgets] = useState<any[]>([]);
   const [budgetSpending, setBudgetSpending] = useState<Record<string, number>>({});
+  const [loans, setLoans] = useState<LoanWithProgress[]>([]);
 
   const currentMonth = getCurrentMonth();
   const { startDate, endDate } = getMonthDateRange(currentMonth);
   const monthLabel = MONTH_NAMES[new Date().getMonth()];
 
   const loadData = useCallback(async () => {
-    const [nw, accs, txns, gaps, summary, catSpending, budgetData, monthSpending] = await Promise.all([
+    const [nw, accs, txns, gaps, summary, catSpending, budgetData, monthSpending, loanList] = await Promise.all([
       getTotalNetWorth(db),
       getAllAccounts(db),
       getRecentTransactions(db, 5),
@@ -82,6 +87,7 @@ export default function DashboardScreen() {
       getSpendingByCategory(db, startDate, endDate),
       getBudgetsForMonth(db, currentMonth),
       getMonthlySpendingByCategory(db, currentMonth),
+      getLoans(db),
     ]);
     setNetWorth(nw);
     setAccounts(accs);
@@ -95,6 +101,7 @@ export default function DashboardScreen() {
       if (s.categoryId) spMap[s.categoryId] = s.total;
     });
     setBudgetSpending(spMap);
+    setLoans(loanList);
   }, [db, startDate, endDate, currentMonth]);
 
   const handleSync = useCallback(async () => {
@@ -146,6 +153,135 @@ export default function DashboardScreen() {
   const netFlow = spending.totalIncome - spending.totalExpense;
   const netFlowColor = netFlow >= 0 ? colors.income : colors.expense;
   const { hidden, toggle } = useBalancePrivacy();
+  const prefs = useDashboardPrefs();
+
+  /** One dashboard section per key, rendered in the user's saved order. */
+  const renderSection = (key: DashboardSectionKey): React.ReactNode => {
+    switch (key) {
+      case 'showNetWorth':
+        return (
+          <NetWorthCard
+            cash={netWorth}
+            lent={loans.filter((l) => l.direction === 'lent').reduce((t, l) => t + l.remaining, 0)}
+            borrowed={loans.filter((l) => l.direction === 'borrowed').reduce((t, l) => t + l.remaining, 0)}
+          />
+        );
+
+      case 'showAccounts':
+        return (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginBottom: 11 }]}>Accounts</Text>
+            {accounts.length === 0 ? (
+              <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+                <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                  No accounts yet. Sync SMS to get started.
+                </Text>
+              </View>
+            ) : (
+              groupAccountsByBank(accounts).map(({ bank, bankAccounts }) =>
+                bankAccounts.length > 1 ? (
+                  <BankGroupCard key={bank} bank={bank} accounts={bankAccounts} />
+                ) : (
+                  <TouchableOpacity
+                    key={bankAccounts[0].id}
+                    activeOpacity={0.7}
+                    onPress={() => router.push(`/account/${bankAccounts[0].id}` as any)}
+                  >
+                    <BalanceCard account={bankAccounts[0]} />
+                  </TouchableOpacity>
+                )
+              )
+            )}
+          </View>
+        );
+
+      case 'showLoans':
+        return <LoansCard loans={loans} />;
+
+      case 'showGaps':
+        return (
+          <ReconciliationBanner
+            gapCount={gapCount}
+            onPress={() => router.push('/reconciliation' as any)}
+          />
+        );
+
+      case 'showSummary':
+        return (
+          <>
+            <View style={styles.monthHeader}>
+              <Text style={[styles.monthTitle, { color: colors.textSecondary }]}>{monthLabel} Summary</Text>
+            </View>
+            <SpendingSummaryCards
+              totalIncome={spending.totalIncome}
+              totalExpense={spending.totalExpense}
+              incomeCount={spending.incomeCount}
+              expenseCount={spending.expenseCount}
+            />
+          </>
+        );
+
+      case 'showSpendingPie':
+        return (
+          <SpendingPieChart
+            data={categorySpending}
+            totalExpense={spending.totalExpense}
+          />
+        );
+
+      case 'showBudgets':
+        if (budgets.length === 0) return null;
+        return (
+          <View style={[styles.budgetSection, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.budgetSectionTitle, { color: colors.textSecondary }]}>Budgets</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/budgets' as any)}>
+                <Text style={[styles.seeAll, { color: colors.gold }]}>Manage</Text>
+              </TouchableOpacity>
+            </View>
+            {budgets.map((b: any) => (
+              <BudgetProgressBar
+                key={b.id}
+                categoryName={b.categoryName}
+                categoryIcon={b.categoryIcon}
+                spent={budgetSpending[b.categoryId] ?? 0}
+                limit={b.limitAmount}
+                compact
+              />
+            ))}
+          </View>
+        );
+
+      case 'showRecent':
+        return (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Recent Transactions</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/transactions' as any)}>
+                <Text style={[styles.seeAll, { color: colors.gold }]}>See All</Text>
+              </TouchableOpacity>
+            </View>
+            {recentTxns.length === 0 ? (
+              <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+                <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                  No transactions yet.
+                </Text>
+              </View>
+            ) : (
+              recentTxns.map((txn: any) => (
+                <TouchableOpacity
+                  key={txn.id}
+                  activeOpacity={0.7}
+                  onPress={() => router.push(`/transaction/${txn.id}` as any)}
+                >
+                  <TransactionCard transaction={txn} />
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        );
+    }
+  };
 
   return (
     <ScrollView
@@ -187,105 +323,11 @@ export default function DashboardScreen() {
         <View style={[styles.heroRule, { backgroundColor: colors.gold }]} />
       </View>
 
-      {/* Accounts — right under the hero */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginBottom: 11 }]}>Accounts</Text>
-        {accounts.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
-            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-              No accounts yet. Sync SMS to get started.
-            </Text>
-          </View>
-        ) : (
-          groupAccountsByBank(accounts).map(({ bank, bankAccounts }) =>
-            bankAccounts.length > 1 ? (
-              <BankGroupCard key={bank} bank={bank} accounts={bankAccounts} />
-            ) : (
-              <TouchableOpacity
-                key={bankAccounts[0].id}
-                activeOpacity={0.7}
-                onPress={() => router.push(`/account/${bankAccounts[0].id}` as any)}
-              >
-                <BalanceCard account={bankAccounts[0]} />
-              </TouchableOpacity>
-            )
-          )
-        )}
-      </View>
-
-      {/* Reconciliation Banner */}
-      <ReconciliationBanner
-        gapCount={gapCount}
-        onPress={() => router.push('/reconciliation' as any)}
-      />
-
-      {/* Monthly Summary Header */}
-      <View style={styles.monthHeader}>
-        <Text style={[styles.monthTitle, { color: colors.textSecondary }]}>{monthLabel} Summary</Text>
-      </View>
-
-      {/* Income / Expense Summary Cards */}
-      <SpendingSummaryCards
-        totalIncome={spending.totalIncome}
-        totalExpense={spending.totalExpense}
-        incomeCount={spending.incomeCount}
-        expenseCount={spending.expenseCount}
-      />
-
-      {/* Spending by Category */}
-      <SpendingPieChart
-        data={categorySpending}
-        totalExpense={spending.totalExpense}
-      />
-
-      {/* Budget Progress */}
-      {budgets.length > 0 && (
-        <View style={[styles.budgetSection, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.budgetSectionTitle, { color: colors.textSecondary }]}>Budgets</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/budgets' as any)}>
-              <Text style={[styles.seeAll, { color: colors.gold }]}>Manage</Text>
-            </TouchableOpacity>
-          </View>
-          {budgets.map((b: any) => (
-            <BudgetProgressBar
-              key={b.id}
-              categoryName={b.categoryName}
-              categoryIcon={b.categoryIcon}
-              spent={budgetSpending[b.categoryId] ?? 0}
-              limit={b.limitAmount}
-              compact
-            />
-          ))}
-        </View>
+      {/* Dashboard sections — user-chosen visibility and order (customize-dashboard) */}
+      {prefs.order.map(
+        (key) =>
+          prefs[key] && <React.Fragment key={key}>{renderSection(key)}</React.Fragment>
       )}
-
-      {/* Recent Transactions */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Recent Transactions</Text>
-          <TouchableOpacity onPress={() => router.push('/(tabs)/transactions' as any)}>
-            <Text style={[styles.seeAll, { color: colors.gold }]}>See All</Text>
-          </TouchableOpacity>
-        </View>
-        {recentTxns.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
-            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-              No transactions yet.
-            </Text>
-          </View>
-        ) : (
-          recentTxns.map((txn: any) => (
-            <TouchableOpacity
-              key={txn.id}
-              activeOpacity={0.7}
-              onPress={() => router.push(`/transaction/${txn.id}` as any)}
-            >
-              <TransactionCard transaction={txn} />
-            </TouchableOpacity>
-          ))
-        )}
-      </View>
 
       <View style={{ height: 24 }} />
     </ScrollView>

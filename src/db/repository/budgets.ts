@@ -11,6 +11,7 @@ export async function getBudgetsForMonth(db: Database, month: string) {
       categoryId: budgets.categoryId,
       categoryName: categories.name,
       categoryIcon: categories.icon,
+      categoryColor: categories.color,
       month: budgets.month,
       limitAmount: budgets.limitAmount,
     })

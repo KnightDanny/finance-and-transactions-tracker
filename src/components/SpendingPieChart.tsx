@@ -3,11 +3,13 @@ import { StyleSheet, View, Text } from 'react-native';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
+import { PieDonut } from './PieDonut';
 
 interface CategorySpending {
   categoryId: string | null;
   categoryName: string;
   categoryIcon: string | null;
+  categoryColor?: string | null;
   total: number;
   count: number;
 }
@@ -55,10 +57,10 @@ export function SpendingPieChart({ data, totalExpense }: Props) {
     });
   }
 
-  // Build pie segments as a simple bar chart (horizontal stacked bar)
+  // Category's own colour wins; palette fills the gaps
   const segments = top.map((cat, i) => ({
     ...cat,
-    color: CHART_COLORS[i % CHART_COLORS.length],
+    color: cat.categoryColor || CHART_COLORS[i % CHART_COLORS.length],
     percentage: (cat.total / totalExpense) * 100,
   }));
 
@@ -66,22 +68,18 @@ export function SpendingPieChart({ data, totalExpense }: Props) {
     <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
       <Text style={[styles.title, { color: colors.textSecondary }]}>Spending by Category</Text>
 
-      {/* Stacked progress bar */}
-      <View style={[styles.barContainer, { backgroundColor: colors.surfaceVariant }]}>
-        {segments.map((seg, i) => (
-          <View
-            key={i}
-            style={[
-              styles.barSegment,
-              {
-                backgroundColor: seg.color,
-                flex: seg.percentage,
-              },
-              i === 0 && styles.barFirst,
-              i === segments.length - 1 && styles.barLast,
-            ]}
-          />
-        ))}
+      {/* Donut */}
+      <View style={styles.donutWrap}>
+        <PieDonut
+          slices={segments.map((seg) => ({ value: seg.total, color: seg.color, key: seg.categoryName }))}
+          size={170}
+          strokeWidth={20}
+        >
+          <Text style={[styles.donutCenterValue, { color: colors.text }]}>
+            {totalExpense.toLocaleString('en', { maximumFractionDigits: 0 })}
+          </Text>
+          <Text style={[styles.donutCenterLabel, { color: colors.textTertiary }]}>ETB spent</Text>
+        </PieDonut>
       </View>
 
       {/* Category list */}
@@ -122,25 +120,9 @@ const styles = StyleSheet.create({
     ...sectionLabel,
     marginBottom: 14,
   },
-  barContainer: {
-    flexDirection: 'row',
-    height: 6,
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 14,
-    gap: 2,
-  },
-  barSegment: {
-    height: '100%',
-  },
-  barFirst: {
-    borderTopLeftRadius: 5,
-    borderBottomLeftRadius: 5,
-  },
-  barLast: {
-    borderTopRightRadius: 5,
-    borderBottomRightRadius: 5,
-  },
+  donutWrap: { alignItems: 'center', marginBottom: 16 },
+  donutCenterValue: { fontFamily: fonts.monoMedium, fontSize: 19 },
+  donutCenterLabel: { fontFamily: fonts.sansBold, fontSize: 8.5, letterSpacing: 1.3, textTransform: 'uppercase', marginTop: 3 },
   list: {
     gap: 10,
   },
