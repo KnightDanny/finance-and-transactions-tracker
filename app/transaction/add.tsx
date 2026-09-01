@@ -5,6 +5,7 @@ import { useDatabase } from '@/src/db/provider';
 import { getAllAccounts } from '@/src/db/repository/accounts';
 import { insertTransaction } from '@/src/db/repository/transactions';
 import { getAllCategories } from '@/src/db/repository/budgets';
+import { AmountInput } from '@/src/components/AmountInput';
 import { resolveGap } from '@/src/reconciliation/engine';
 import dayjs from 'dayjs';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -104,7 +105,11 @@ export default function AddTransactionScreen() {
     : '';
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ paddingBottom: 48 }}
+    >
       {isFromGap ? (
         /* Pre-filled summary from reconciliation gap */
         <View style={[styles.prefilledCard, { backgroundColor: isDark ? '#1a2a3a' : '#e3f2fd' }]}>
@@ -149,11 +154,10 @@ export default function AddTransactionScreen() {
           </View>
 
           <Text style={[styles.label, { color: colors.text }]}>Amount (ETB)</Text>
-          <TextInput
+          <AmountInput
             style={inputStyle}
             value={amount}
             onChangeText={setAmount}
-            keyboardType="decimal-pad"
             placeholder="0.00"
             placeholderTextColor={isDark ? '#666' : '#aaa'}
           />

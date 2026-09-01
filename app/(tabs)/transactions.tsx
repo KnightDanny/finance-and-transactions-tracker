@@ -1,11 +1,14 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { StyleSheet, View, Text, SectionList, TouchableOpacity, RefreshControl, ScrollView, TextInput, LayoutAnimation } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { StyleSheet, View, Text, SectionList, TouchableOpacity, RefreshControl, ScrollView, TextInput, LayoutAnimation, Modal, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
-import { getTransactionsFiltered, getSpendingSummary } from '@/src/db/repository/transactions';
+import { getTransactionsFiltered, getSpendingSummary, getPairProfits } from '@/src/db/repository/transactions';
 import { getAllCategories } from '@/src/db/repository/budgets';
+import { getAllAccounts } from '@/src/db/repository/accounts';
+import { getBankConfig } from '@/src/utils/bankConfig';
 import { TransactionCard } from '@/src/components/TransactionCard';
+import { CalendarPicker } from '@/src/components/CalendarPicker';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts } from '@/constants/Type';
@@ -15,23 +18,27 @@ const MONTH_NAMES = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
-function generateMonths(count: number): { key: string; label: string; startDate: string; endDate: string }[] {
-  const months = [];
-  const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const key = `${yyyy}-${mm}`;
-    months.push({
-      key,
-      label: i === 0 ? 'This Month' : `${MONTH_NAMES[d.getMonth()]} ${yyyy}`,
-      startDate: `${key}-01`,
-      endDate: `${key}-31`,
-    });
-  }
-  return months;
-}
+const isoDay = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const daysAgoIso = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return isoDay(d);
+};
+
+const todayIso = () => isoDay(new Date());
+
+const monthStartIso = () => {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-01`;
+};
+
+/** "2026-08-01" → "1 Aug" for the date pills. */
+const shortDate = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return isNaN(d.getTime()) ? iso : `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
+};
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -43,8 +50,12 @@ interface DaySection {
 }
 
 /** Group (already date-desc sorted) transactions into per-day sections with totals. */
-function buildDaySections(txns: any[]): DaySection[] {
+function buildDaySections(
+  txns: any[],
+  pairProfits: Array<{ pairId: string; date: string; profit: number }> = []
+): DaySection[] {
   const sections: DaySection[] = [];
+  const sectionByPairCredit = new Map<string, DaySection>();
   let current: DaySection | null = null;
   let currentDate = '';
   for (const t of txns) {
@@ -58,14 +69,28 @@ function buildDaySections(txns: any[]): DaySection[] {
       sections.push(current);
     }
     current!.data.push(t);
-    // Own-account transfers move money between the user's own accounts —
-    // keep them out of the per-day income/expense figures (same rule as the
-    // monthly aggregates)
+    // Own-account transfers and foreign-currency rows stay out of the per-day
+    // ETB income/expense figures (same rules as the monthly aggregates — a
+    // 500 USDT deposit is not ETB 500 of income). Fees are spending even on
+    // transfers: the principal moves between own accounts, the fee leaves.
     const own = t.counterparty?.startsWith('Own account');
-    if (!own) {
-      if (t.type === 'credit') current!.income += t.amount;
-      else current!.expense += t.amount;
+    const foreign = (t.currency ?? 'ETB') !== 'ETB';
+    const paired = !!t.transferPairId; // marked P2P/transfer pair
+    const fees = (t.serviceCharge ?? 0) + (t.vat ?? 0) + (t.disasterFund ?? 0);
+    if (t.type === 'credit' && paired) sectionByPairCredit.set(t.transferPairId, current!);
+    if (!foreign) {
+      if (t.type === 'credit') {
+        if (!own && !paired) current!.income += t.amount;
+      } else {
+        current!.expense += own || paired ? fees : t.amount + fees;
+      }
     }
+  }
+  // A P2P pair whose in-leg beats its out-leg (at saved rates) earned income —
+  // credited to the day of the incoming leg
+  for (const p of pairProfits) {
+    const section = sectionByPairCredit.get(p.pairId);
+    if (section) section.income += p.profit;
   }
   return sections;
 }
@@ -81,10 +106,15 @@ export default function TransactionsScreen() {
   const colors = Colors[colorScheme];
   const [transactions, setTransactions] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [accountList, setAccountList] = useState<any[]>([]);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | 'credit' | 'debit' | 'loans'>('all');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
-  const [selectedMonthIdx, setSelectedMonthIdx] = useState(0);
+  // Date range — defaults to all time; '' = open-ended
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [calTarget, setCalTarget] = useState<'from' | 'to' | null>(null);
   const [summary, setSummary] = useState({ totalIncome: 0, totalExpense: 0, incomeCount: 0, expenseCount: 0 });
   const [search, setSearch] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -92,41 +122,59 @@ export default function TransactionsScreen() {
   const [amountMax, setAmountMax] = useState('');
   const isSearching = search.trim().length > 0;
 
-  const months = generateMonths(12);
-  const selectedMonth = months[selectedMonthIdx];
-  const monthScrollRef = useRef<ScrollView>(null);
-
   useEffect(() => {
     getAllCategories(db).then(setCategories);
+    getAllAccounts(db).then(setAccountList);
   }, [db]);
+
+  // Arriving from the dashboard pie: show that category's transactions for
+  // this month, with the filter panel open so the scope is visible
+  const { categoryId: incomingCategoryId } = useLocalSearchParams<{ categoryId?: string }>();
+  useEffect(() => {
+    if (!incomingCategoryId) return;
+    setSelectedCategoryIds([incomingCategoryId]);
+    setTypeFilter('all');
+    setDateFrom(monthStartIso());
+    setDateTo(todayIso());
+    setFiltersOpen(true);
+    router.setParams({ categoryId: undefined });
+  }, [incomingCategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const searching = search.trim();
   const minAmount = parseFloat(amountMin);
   const maxAmount = parseFloat(amountMax);
+  const [pairProfits, setPairProfits] = useState<Array<{ pairId: string; date: string; profit: number }>>([]);
   const loadData = useCallback(async () => {
-    const [txns, sum] = await Promise.all([
+    const [txns, sum, profits] = await Promise.all([
       getTransactionsFiltered(db, {
         type: typeFilter === 'credit' || typeFilter === 'debit' ? typeFilter : undefined,
         // "Loans" = transactions the user marked as loans
         hasLoan: typeFilter === 'loans' || undefined,
         categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
-        // A search spans ALL months — the month picker only scopes browsing
-        startDate: searching ? undefined : selectedMonth.startDate,
-        endDate: searching ? undefined : selectedMonth.endDate,
+        accountIds: selectedAccountIds.length > 0 ? selectedAccountIds : undefined,
+        // The date range always applies — "All" clears it for all-time search
+        startDate: dateFrom || undefined,
+        endDate: dateTo || undefined,
         search: searching || undefined,
         minAmount: isNaN(minAmount) ? undefined : minAmount,
         maxAmount: isNaN(maxAmount) ? undefined : maxAmount,
         limit: 200,
       }),
-      getSpendingSummary(db, selectedMonth.startDate, selectedMonth.endDate),
+      getSpendingSummary(db, dateFrom || '0000-01-01', dateTo || '9999-12-31'),
+      getPairProfits(db, dateFrom || '0000-01-01', dateTo || '9999-12-31'),
     ]);
     setTransactions(txns);
     setSummary(sum);
-  }, [db, typeFilter, selectedCategoryIds, selectedMonth, searching, minAmount, maxAmount]);
+    setPairProfits(profits);
+  }, [db, typeFilter, selectedCategoryIds, selectedAccountIds, dateFrom, dateTo, searching, minAmount, maxAmount]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  // Reload on focus too — catches category/note edits made in the detail
+  // screen and syncs run from other tabs
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -140,6 +188,15 @@ export default function TransactionsScreen() {
     );
   };
 
+  const toggleAccount = (accId: string) => {
+    setSelectedAccountIds(prev =>
+      prev.includes(accId) ? prev.filter(id => id !== accId) : [...prev, accId]
+    );
+  };
+
+  const accountName = (a: any) =>
+    a.label || `${getBankConfig(a.bank, a.label ?? a.accountNumber).name} ...${a.accountNumber.slice(-4)}`;
+
   const visibleCategories = categories.filter((c: any) => {
     if (typeFilter === 'credit') return c.type === 'income';
     if (typeFilter === 'debit') return c.type === 'expense';
@@ -148,12 +205,28 @@ export default function TransactionsScreen() {
 
   const chipBg = colors.surfaceVariant;
 
+  // Date presets — "This month" is the default and not counted as a filter
+  const datePresets = [
+    { key: 'all', label: 'All time', from: '', to: '' },
+    { key: 'month', label: 'This month', from: monthStartIso(), to: todayIso() },
+    { key: 'today', label: 'Today', from: todayIso(), to: todayIso() },
+    { key: '7d', label: '7 days', from: daysAgoIso(7), to: todayIso() },
+  ];
+  const isDefaultRange = dateFrom === '' && dateTo === '';
+
   const activeFilterCount =
-    (selectedMonthIdx !== 0 ? 1 : 0) +
+    (isDefaultRange ? 0 : 1) +
     (typeFilter !== 'all' ? 1 : 0) +
     (selectedCategoryIds.length > 0 ? 1 : 0) +
+    (selectedAccountIds.length > 0 ? 1 : 0) +
     (!isNaN(minAmount) || !isNaN(maxAmount) ? 1 : 0);
   const filterActive = filtersOpen || activeFilterCount > 0;
+
+  const pickDate = (iso: string) => {
+    if (calTarget === 'from') setDateFrom(dateTo && iso > dateTo ? dateTo : iso);
+    else if (calTarget === 'to') setDateTo(dateFrom && iso < dateFrom ? dateFrom : iso);
+    setCalTarget(null);
+  };
 
   const toggleFilters = () => {
     LayoutAnimation.configureNext(
@@ -165,10 +238,45 @@ export default function TransactionsScreen() {
   const resetFilters = () => {
     setTypeFilter('all');
     setSelectedCategoryIds([]);
-    setSelectedMonthIdx(0);
+    setSelectedAccountIds([]);
+    setDateFrom('');
+    setDateTo('');
     setAmountMin('');
     setAmountMax('');
   };
+
+  /** Uniform filter pill. Plain render helpers (NOT components) — an inline
+   * component type is recreated every render, which remounts the ScrollView
+   * and kills its horizontal scrolling. */
+  const chip = (key: string, active: boolean, label: string, onPress: () => void) => (
+    <TouchableOpacity
+      key={key}
+      style={[styles.chip, {
+        backgroundColor: active ? colors.goldDim : colors.surfaceVariant,
+        borderColor: active ? colors.hairlineStrong : 'transparent',
+      }]}
+      onPress={onPress}
+    >
+      <Text style={[styles.chipText, { color: active ? colors.gold : colors.textSecondary }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+
+  /** One compact filter group: tiny label, single horizontally scrolling row. */
+  const filterRow = (label: string, chips: React.ReactNode) => (
+    <View style={styles.filterGroup}>
+      <Text style={[styles.panelLabel, { color: colors.textTertiary }]}>{label}</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        style={styles.hScroll}
+        contentContainerStyle={styles.hRow}
+      >
+        {chips}
+      </ScrollView>
+    </View>
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -199,7 +307,7 @@ export default function TransactionsScreen() {
           }]}
           onPress={toggleFilters}
         >
-          <Feather name="sliders" size={16} color={filterActive ? colors.gold : colors.textSecondary} />
+          <Feather name="filter" size={16} color={filterActive ? colors.gold : colors.textSecondary} />
           {activeFilterCount > 0 && (
             <View style={[styles.filterBadge, { backgroundColor: colors.gold }]}>
               <Text style={[styles.filterBadgeText, { color: colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8' }]}>
@@ -210,113 +318,96 @@ export default function TransactionsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Expanding filter panel */}
+      {/* Expanding filter panel — one compact scrolling row per group */}
       {filtersOpen && (
         <View style={[styles.filterPanel, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
-          {!isSearching && (
-            <>
-              <Text style={[styles.panelLabel, { color: colors.textTertiary }]}>Month</Text>
-              <ScrollView
-                ref={monthScrollRef}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.monthScroll}
-                contentContainerStyle={styles.monthRow}
-              >
-                {months.map((m, idx) => {
-                  const isActive = idx === selectedMonthIdx;
-                  return (
-                    <TouchableOpacity
-                      key={m.key}
-                      style={[styles.monthChip, {
-                        backgroundColor: isActive ? colors.goldDim : chipBg,
-                        borderColor: isActive ? colors.hairlineStrong : 'transparent',
-                      }]}
-                      onPress={() => setSelectedMonthIdx(idx)}
-                    >
-                      <Text style={[styles.monthText, { color: isActive ? colors.gold : colors.textTertiary }]}>
-                        {m.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </>
-          )}
+          <View style={styles.panelHeader}>
+            <Text style={[styles.panelTitle, { color: colors.textSecondary }]}>Filters</Text>
+            <TouchableOpacity
+              onPress={resetFilters}
+              disabled={activeFilterCount === 0}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={[styles.clearText, { color: activeFilterCount > 0 ? colors.gold : colors.textTertiary }]}>
+                Clear all
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-          <Text style={[styles.panelLabel, { color: colors.textTertiary }]}>Type</Text>
-          <View style={styles.chipWrap}>
-            {([
+          {filterRow('Date', [
+            ...datePresets
+              .filter((p) => p.key === 'all')
+              .map((p) =>
+                chip(p.key, dateFrom === p.from && dateTo === p.to, p.label, () => {
+                  setDateFrom(p.from);
+                  setDateTo(p.to);
+                })
+              ),
+            chip('from', false, `From: ${dateFrom ? shortDate(dateFrom) : 'Any'}`, () => setCalTarget('from')),
+            chip('to', false, `To: ${dateTo ? shortDate(dateTo) : 'Any'}`, () => setCalTarget('to')),
+            ...datePresets
+              .filter((p) => p.key !== 'all')
+              .map((p) =>
+                chip(p.key, dateFrom === p.from && dateTo === p.to, p.label, () => {
+                  setDateFrom(p.from);
+                  setDateTo(p.to);
+                })
+              ),
+          ])}
+
+          {filterRow(
+            'Type',
+            ([
               { key: 'all', label: 'All' },
               { key: 'credit', label: 'Income' },
               { key: 'debit', label: 'Expense' },
               { key: 'loans', label: 'Loans' },
-            ] as const).map((f) => {
-              const isActive = typeFilter === f.key;
-              return (
-                <TouchableOpacity
-                  key={f.key}
-                  style={[styles.filterChip, {
-                    backgroundColor: isActive ? colors.goldDim : chipBg,
-                    borderColor: isActive ? colors.hairlineStrong : 'transparent',
-                  }]}
-                  onPress={() => { setTypeFilter(f.key); setSelectedCategoryIds([]); }}
-                >
-                  <Text style={[styles.filterText, { color: isActive ? colors.gold : colors.textSecondary }]}>
-                    {f.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <Text style={[styles.panelLabel, { color: colors.textTertiary }]}>Categories</Text>
-          <View style={styles.chipWrap}>
-            {visibleCategories.map((cat: any) => {
-              const isSelected = selectedCategoryIds.includes(cat.id);
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[styles.filterChip, {
-                    backgroundColor: isSelected ? colors.goldDim : chipBg,
-                    borderColor: isSelected ? colors.hairlineStrong : 'transparent',
-                  }]}
-                  onPress={() => toggleCategory(cat.id)}
-                >
-                  <Text style={[styles.filterText, { color: isSelected ? colors.gold : colors.textSecondary }]}>
-                    {cat.icon} {cat.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <Text style={[styles.panelLabel, { color: colors.textTertiary }]}>Amount (ETB)</Text>
-          <View style={styles.amountRow}>
-            <TextInput
-              style={[styles.amountInput, { backgroundColor: chipBg, color: colors.text, borderColor: colors.hairline }]}
-              value={amountMin}
-              onChangeText={setAmountMin}
-              placeholder="Min"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="numeric"
-            />
-            <Text style={{ color: colors.textTertiary }}>–</Text>
-            <TextInput
-              style={[styles.amountInput, { backgroundColor: chipBg, color: colors.text, borderColor: colors.hairline }]}
-              value={amountMax}
-              onChangeText={setAmountMax}
-              placeholder="Max"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="numeric"
-            />
-          </View>
-
-          {activeFilterCount > 0 && (
-            <TouchableOpacity onPress={resetFilters} style={styles.resetBtn}>
-              <Text style={[styles.resetText, { color: colors.expense }]}>Reset filters</Text>
-            </TouchableOpacity>
+            ] as const).map((f) =>
+              chip(f.key, typeFilter === f.key, f.label, () => {
+                setTypeFilter(f.key);
+                setSelectedCategoryIds([]);
+              })
+            )
           )}
+
+          {filterRow(
+            'Account',
+            accountList.map((a: any) =>
+              chip(a.id, selectedAccountIds.includes(a.id), accountName(a), () => toggleAccount(a.id))
+            )
+          )}
+
+          {filterRow(
+            'Category',
+            visibleCategories.map((cat: any) =>
+              chip(cat.id, selectedCategoryIds.includes(cat.id), `${cat.icon} ${cat.name}`, () =>
+                toggleCategory(cat.id)
+              )
+            )
+          )}
+
+          <View style={styles.filterGroup}>
+            <Text style={[styles.panelLabel, { color: colors.textTertiary }]}>Amount (ETB)</Text>
+            <View style={styles.amountRow}>
+              <TextInput
+                style={[styles.amountInput, { backgroundColor: chipBg, color: colors.text, borderColor: colors.hairline }]}
+                value={amountMin}
+                onChangeText={setAmountMin}
+                placeholder="Min"
+                placeholderTextColor={colors.textTertiary}
+                keyboardType="numeric"
+              />
+              <Text style={{ color: colors.textTertiary }}>–</Text>
+              <TextInput
+                style={[styles.amountInput, { backgroundColor: chipBg, color: colors.text, borderColor: colors.hairline }]}
+                value={amountMax}
+                onChangeText={setAmountMax}
+                placeholder="Max"
+                placeholderTextColor={colors.textTertiary}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
         </View>
       )}
 
@@ -349,9 +440,9 @@ export default function TransactionsScreen() {
       )}
 
       <SectionList
-        sections={buildDaySections(transactions)}
+        sections={buildDaySections(transactions, pairProfits)}
         keyExtractor={(item) => item.id}
-        stickySectionHeadersEnabled={false}
+        stickySectionHeadersEnabled
         renderItem={({ item }) => (
           <TouchableOpacity activeOpacity={0.7} onPress={() => router.push(`/transaction/${item.id}` as any)}>
             <TransactionCard transaction={item} />
@@ -361,7 +452,7 @@ export default function TransactionsScreen() {
           const day = section as unknown as DaySection;
           const net = day.income - day.expense;
           return (
-            <View style={styles.dayHeader}>
+            <View style={[styles.dayHeader, { backgroundColor: colors.background }]}>
               <Text style={[styles.dayTitle, { color: colors.textSecondary }]}>{day.title}</Text>
               <View style={[styles.dayRule, { backgroundColor: colors.hairline }]} />
               <View style={styles.dayTotals}>
@@ -388,7 +479,7 @@ export default function TransactionsScreen() {
                 ? `No matches for “${search.trim()}”.`
                 : activeFilterCount > 0
                   ? 'No transactions match your filters.'
-                  : `No transactions for ${selectedMonth.label.toLowerCase()}.`}
+                  : 'No transactions in this range.'}
             </Text>
           </View>
         }
@@ -400,8 +491,26 @@ export default function TransactionsScreen() {
         activeOpacity={0.8}
         onPress={() => router.push('/transaction/add' as any)}
       >
-        <Text style={[styles.fabText, { color: colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8' }]}>+</Text>
+        <Feather name="plus" size={26} color={colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8'} />
       </TouchableOpacity>
+
+      {/* From/To calendar */}
+      <Modal visible={calTarget !== null} transparent animationType="fade" onRequestClose={() => setCalTarget(null)}>
+        <Pressable style={styles.calOverlay} onPress={() => setCalTarget(null)}>
+          <View
+            style={[styles.calSheet, { backgroundColor: colors.surface, borderColor: colors.hairlineStrong }]}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={[styles.calTitle, { color: colors.textSecondary }]}>
+              {calTarget === 'from' ? 'From date' : 'To date'}
+            </Text>
+            <CalendarPicker
+              value={(calTarget === 'from' ? dateFrom : dateTo) || null}
+              onChange={pickDate}
+            />
+          </View>
+        </Pressable>
+      </Modal>
 
     </View>
   );
@@ -451,46 +560,52 @@ const styles = StyleSheet.create({
     marginHorizontal: 13,
     marginTop: 8,
     paddingHorizontal: 14,
-    paddingTop: 4,
+    paddingTop: 12,
     paddingBottom: 14,
     borderRadius: 16,
     borderWidth: 1,
   },
+  panelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  panelTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  clearText: { fontFamily: fonts.sansBold, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase' },
+  filterGroup: { marginTop: 11 },
   panelLabel: {
     fontFamily: fonts.sansBold,
     fontSize: 8.5,
     letterSpacing: 1.3,
     textTransform: 'uppercase',
-    marginTop: 12,
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // ScrollView defaults to flexGrow:1 AND flexShrink:1 — both must be pinned
+  // or the list below squashes the pills
+  hScroll: { flexGrow: 0, flexShrink: 0 },
+  hRow: { gap: 7, alignItems: 'center' },
+  chip: {
+    paddingHorizontal: 13,
+    paddingVertical: 6.5,
+    borderRadius: 99,
+    borderWidth: 1,
+  },
+  chipText: { fontFamily: fonts.sansSemiBold, fontSize: 11.5 },
   amountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   amountInput: {
     flex: 1,
     fontFamily: fonts.monoMedium,
     fontSize: 13,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderRadius: 10,
     borderWidth: 1,
   },
-  resetBtn: { alignSelf: 'flex-end', marginTop: 14 },
-  resetText: { fontFamily: fonts.sansMedium, fontSize: 12 },
-  // ScrollView defaults to flexGrow:1 AND flexShrink:1 — both must be pinned
-  // or the list below squashes the pills
-  monthScroll: { flexGrow: 0, flexShrink: 0 },
-  monthRow: {
-    gap: 8,
-    alignItems: 'center',
-  },
-  monthChip: {
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 99,
-    borderWidth: 1,
-  },
-  monthText: { fontFamily: fonts.mono, fontSize: 12 },
   summaryBar: {
     flexDirection: 'row',
     marginHorizontal: 13,
@@ -511,20 +626,15 @@ const styles = StyleSheet.create({
     width: 1,
     height: 28,
   },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 99,
-    borderWidth: 1,
-  },
-  filterText: { fontFamily: fonts.sansSemiBold, fontSize: 12 },
+  // Sticky while scrolling through the day — solid background and padding
+  // (not margins) so the rows sliding underneath stay hidden
   dayHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginTop: 18,
-    marginBottom: 4,
-    marginHorizontal: 3,
+    paddingTop: 18,
+    paddingBottom: 6,
+    paddingHorizontal: 3,
   },
   dayTitle: { fontFamily: fonts.sansBold, fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase' },
   dayRule: { flex: 1, height: 1 },
@@ -551,5 +661,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     elevation: 4,
   },
-  fabText: { fontFamily: fonts.sans, fontSize: 28, lineHeight: 30 },
+  calOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  calSheet: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+  },
+  calTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
 });

@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback, useLayoutEffect } from 'react';
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
-import { useRouter, useNavigation } from 'expo-router';
+import { StyleSheet, ScrollView, View, Text, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, LayoutAnimation } from 'react-native';
+import { useRouter, useNavigation, useFocusEffect } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
 import { getAllAccounts, getTotalNetWorth } from '@/src/db/repository/accounts';
-import { getRecentTransactions, getSpendingSummary, getSpendingByCategory, getMonthlySpendingByCategory } from '@/src/db/repository/transactions';
-import { getBudgetsForMonth } from '@/src/db/repository/budgets';
+import { getRecentTransactions, getSpendingSummary } from '@/src/db/repository/transactions';
+import { getPeriodBudgetsWithSpend } from '@/src/db/repository/periodBudgets';
 import { TransactionCard } from '@/src/components/TransactionCard';
 import { BalanceCard } from '@/src/components/BalanceCard';
 import { BankGroupCard } from '@/src/components/BankGroupCard';
@@ -15,8 +15,10 @@ import { ReconciliationBanner } from '@/src/components/ReconciliationBanner';
 import { NetWorthCard } from '@/src/components/NetWorthCard';
 import { LoansCard } from '@/src/components/LoansCard';
 import { getUnresolvedGaps } from '@/src/reconciliation/engine';
-import { getLoans, LoanWithProgress } from '@/src/db/repository/loans';
+import { getLoans, getLoanTotals, LoanWithProgress } from '@/src/db/repository/loans';
+import { getRateMap } from '@/src/db/repository/rates';
 import { syncSms } from '@/src/sms/sync';
+import { syncEmails } from '@/src/email/sync';
 import { SymbolView } from 'expo-symbols';
 import { Feather } from '@expo/vector-icons';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -25,18 +27,25 @@ import { fonts, sectionLabel } from '@/constants/Type';
 import { useBalancePrivacy, MASKED } from '@/src/state/balancePrivacy';
 import { useDashboardPrefs, DashboardSectionKey } from '@/src/state/dashboardPrefs';
 
-/** Group accounts by bank; richest bank first, richest account first within each. */
-function groupAccountsByBank(accounts: any[]): { bank: string; bankAccounts: any[] }[] {
+/** Group accounts by bank; richest bank first, richest account first within
+ * each — compared in ETB via the saved rates, so a USD account outranks a
+ * smaller ETB one (a rateless currency counts 0). Manual accounts stay
+ * individual — their currencies differ, so a summed group header would be
+ * meaningless. */
+function groupAccountsByBank(
+  accounts: any[],
+  rates: Record<string, number>
+): { bank: string; bankAccounts: any[] }[] {
   const groups: { bank: string; bankAccounts: any[] }[] = [];
   for (const account of accounts) {
-    const existing = groups.find((g) => g.bank === account.bank);
+    const existing = !account.isManual && groups.find((g) => g.bank === account.bank);
     if (existing) existing.bankAccounts.push(account);
     else groups.push({ bank: account.bank, bankAccounts: [account] });
   }
-  const total = (g: { bankAccounts: any[] }) =>
-    g.bankAccounts.reduce((sum, a) => sum + (a.latestBalance ?? 0), 0);
+  const etb = (a: any) => (a.latestBalance ?? 0) * (rates[a.currency ?? 'ETB'] ?? 0);
+  const total = (g: { bankAccounts: any[] }) => g.bankAccounts.reduce((sum, a) => sum + etb(a), 0);
   for (const g of groups) {
-    g.bankAccounts.sort((a, b) => (b.latestBalance ?? 0) - (a.latestBalance ?? 0));
+    g.bankAccounts.sort((a, b) => etb(b) - etb(a));
   }
   return groups.sort((a, b) => total(b) - total(a));
 }
@@ -55,6 +64,9 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+// One automatic sync per app launch (module-level so tab switches don't re-trigger)
+let autoSyncedThisLaunch = false;
+
 export default function DashboardScreen() {
   const db = useDatabase();
   const router = useRouter();
@@ -68,40 +80,38 @@ export default function DashboardScreen() {
   const [gapCount, setGapCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [spending, setSpending] = useState({ totalIncome: 0, totalExpense: 0, incomeCount: 0, expenseCount: 0 });
-  const [categorySpending, setCategorySpending] = useState<any[]>([]);
+  const [dataTick, setDataTick] = useState(0); // bumps per reload → child charts refetch
   const [budgets, setBudgets] = useState<any[]>([]);
-  const [budgetSpending, setBudgetSpending] = useState<Record<string, number>>({});
   const [loans, setLoans] = useState<LoanWithProgress[]>([]);
+  const [loanTotals, setLoanTotals] = useState({ lentOutstanding: 0, borrowedOutstanding: 0 });
+  const [rates, setRates] = useState<Record<string, number>>({ ETB: 1 });
 
   const currentMonth = getCurrentMonth();
   const { startDate, endDate } = getMonthDateRange(currentMonth);
   const monthLabel = MONTH_NAMES[new Date().getMonth()];
 
   const loadData = useCallback(async () => {
-    const [nw, accs, txns, gaps, summary, catSpending, budgetData, monthSpending, loanList] = await Promise.all([
+    const [nw, accs, txns, gaps, summary, budgetData, loanList, loanTot, rateMap] = await Promise.all([
       getTotalNetWorth(db),
       getAllAccounts(db),
       getRecentTransactions(db, 5),
       getUnresolvedGaps(db),
       getSpendingSummary(db, startDate, endDate),
-      getSpendingByCategory(db, startDate, endDate),
-      getBudgetsForMonth(db, currentMonth),
-      getMonthlySpendingByCategory(db, currentMonth),
+      getPeriodBudgetsWithSpend(db, currentMonth),
       getLoans(db),
+      getLoanTotals(db),
+      getRateMap(db),
     ]);
     setNetWorth(nw);
     setAccounts(accs);
     setRecentTxns(txns);
     setGapCount(gaps.length);
     setSpending(summary);
-    setCategorySpending(catSpending);
     setBudgets(budgetData);
-    const spMap: Record<string, number> = {};
-    monthSpending.forEach((s: any) => {
-      if (s.categoryId) spMap[s.categoryId] = s.total;
-    });
-    setBudgetSpending(spMap);
     setLoans(loanList);
+    setLoanTotals(loanTot);
+    setRates(rateMap);
+    setDataTick((t) => t + 1);
   }, [db, startDate, endDate, currentMonth]);
 
   const handleSync = useCallback(async () => {
@@ -109,6 +119,8 @@ export default function DashboardScreen() {
     setIsSyncing(true);
     try {
       const result = await syncSms(db);
+      // Emails too — Gmail-connected or not, this degrades gracefully
+      try { await syncEmails(db); } catch {}
       await loadData();
       if (result.gaps > 0) {
         Alert.alert(
@@ -123,9 +135,27 @@ export default function DashboardScreen() {
     }
   }, [db, isSyncing, loadData]);
 
+  // Refresh whenever the dashboard regains focus — after edits in detail
+  // screens, tab switches, or an email sync from the More tab
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
+  // Silent SMS + email sync once per app launch
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (autoSyncedThisLaunch) return;
+    autoSyncedThisLaunch = true;
+    (async () => {
+      setIsSyncing(true);
+      try { await syncSms(db); } catch {}
+      try { await syncEmails(db); } catch {}
+      setIsSyncing(false);
+      loadData();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -162,23 +192,41 @@ export default function DashboardScreen() {
         return (
           <NetWorthCard
             cash={netWorth}
-            lent={loans.filter((l) => l.direction === 'lent').reduce((t, l) => t + l.remaining, 0)}
-            borrowed={loans.filter((l) => l.direction === 'borrowed').reduce((t, l) => t + l.remaining, 0)}
+            lent={loanTotals.lentOutstanding}
+            borrowed={loanTotals.borrowedOutstanding}
           />
         );
 
       case 'showAccounts':
         return (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginBottom: 11 }]}>Accounts</Text>
-            {accounts.length === 0 ? (
+            <TouchableOpacity
+              style={styles.sectionHeaderRow}
+              activeOpacity={0.7}
+              onPress={() => {
+                LayoutAnimation.configureNext(
+                  LayoutAnimation.create(160, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity)
+                );
+                prefs.toggleAccountsCollapsed();
+              }}
+            >
+              <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+                Accounts{prefs.accountsCollapsed ? ` · ${accounts.length}` : ''}
+              </Text>
+              <Feather
+                name={prefs.accountsCollapsed ? 'chevron-down' : 'chevron-up'}
+                size={15}
+                color={colors.textTertiary}
+              />
+            </TouchableOpacity>
+            {prefs.accountsCollapsed ? null : accounts.length === 0 ? (
               <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
                 <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                   No accounts yet. Sync SMS to get started.
                 </Text>
               </View>
             ) : (
-              groupAccountsByBank(accounts).map(({ bank, bankAccounts }) =>
+              groupAccountsByBank(accounts, rates).map(({ bank, bankAccounts }) =>
                 bankAccounts.length > 1 ? (
                   <BankGroupCard key={bank} bank={bank} accounts={bankAccounts} />
                 ) : (
@@ -196,7 +244,7 @@ export default function DashboardScreen() {
         );
 
       case 'showLoans':
-        return <LoansCard loans={loans} />;
+        return <LoansCard loans={loans} totals={loanTotals} />;
 
       case 'showGaps':
         return (
@@ -222,15 +270,12 @@ export default function DashboardScreen() {
         );
 
       case 'showSpendingPie':
-        return (
-          <SpendingPieChart
-            data={categorySpending}
-            totalExpense={spending.totalExpense}
-          />
-        );
+        return <SpendingPieChart refreshKey={dataTick} />;
 
-      case 'showBudgets':
-        if (budgets.length === 0) return null;
+      case 'showBudgets': {
+        // Only budgets the user chose to surface here
+        const homeBudgets = budgets.filter((b: any) => b.showOnHome !== false);
+        if (homeBudgets.length === 0) return null;
         return (
           <View style={[styles.budgetSection, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
             <View style={styles.sectionHeader}>
@@ -239,18 +284,22 @@ export default function DashboardScreen() {
                 <Text style={[styles.seeAll, { color: colors.gold }]}>Manage</Text>
               </TouchableOpacity>
             </View>
-            {budgets.map((b: any) => (
+            {homeBudgets.map((b: any) => (
               <BudgetProgressBar
                 key={b.id}
-                categoryName={b.categoryName}
-                categoryIcon={b.categoryIcon}
-                spent={budgetSpending[b.categoryId] ?? 0}
+                categoryName={b.name || (b.familyCount === null ? 'All spending' : `${b.familyCount} categor${b.familyCount === 1 ? 'y' : 'ies'}`)}
+                categoryIcon="🎯"
+                spent={b.spent}
                 limit={b.limitAmount}
+                subtitle={b.perDayLeft != null
+                  ? `ETB ${b.perDayLeft.toLocaleString('en', { maximumFractionDigits: 0 })}/day for ${b.daysLeft} more day${b.daysLeft === 1 ? '' : 's'}`
+                  : undefined}
                 compact
               />
             ))}
           </View>
         );
+      }
 
       case 'showRecent':
         return (
@@ -372,6 +421,13 @@ const styles = StyleSheet.create({
   },
   budgetSectionTitle: { ...sectionLabel },
   section: { marginHorizontal: 13, marginBottom: 20 },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 11,
+    paddingRight: 3,
+  },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 11 },
   sectionTitle: { ...sectionLabel, marginLeft: 3 },
   seeAll: { fontFamily: fonts.sansBold, fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase' },

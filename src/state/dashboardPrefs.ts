@@ -59,12 +59,16 @@ function sanitizeOrder(saved: unknown): DashboardSectionKey[] {
 
 interface DashboardPrefsState extends DashboardPrefs {
   order: DashboardSectionKey[];
+  /** Accounts section folded down to just its header. */
+  accountsCollapsed: boolean;
   toggle: (key: DashboardSectionKey) => void;
   setOrder: (order: DashboardSectionKey[]) => void;
+  toggleAccountsCollapsed: () => void;
 }
 
 function persist(state: DashboardPrefsState) {
-  const toSave: DashboardPrefs & { order: DashboardSectionKey[] } = {
+  const toSave: DashboardPrefs & { order: DashboardSectionKey[]; accountsCollapsed: boolean } = {
+    accountsCollapsed: state.accountsCollapsed,
     showNetWorth: state.showNetWorth,
     showLoans: state.showLoans,
     showGaps: state.showGaps,
@@ -82,12 +86,17 @@ function persist(state: DashboardPrefsState) {
 export const useDashboardPrefs = create<DashboardPrefsState>((set, get) => ({
   ...DEFAULTS,
   order: DEFAULT_ORDER,
+  accountsCollapsed: false,
   toggle: (key) => {
     set({ [key]: !get()[key] } as Partial<DashboardPrefsState>);
     persist(get());
   },
   setOrder: (order) => {
     set({ order: sanitizeOrder(order) });
+    persist(get());
+  },
+  toggleAccountsCollapsed: () => {
+    set({ accountsCollapsed: !get().accountsCollapsed });
     persist(get());
   },
 }));
@@ -97,7 +106,12 @@ SecureStore.getItemAsync(STORAGE_KEY)
     if (!v) return;
     try {
       const saved = JSON.parse(v);
-      useDashboardPrefs.setState({ ...DEFAULTS, ...saved, order: sanitizeOrder(saved.order) });
+      useDashboardPrefs.setState({
+        ...DEFAULTS,
+        accountsCollapsed: false,
+        ...saved,
+        order: sanitizeOrder(saved.order),
+      });
     } catch {}
   })
   .catch(() => {});

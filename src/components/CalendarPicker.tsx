@@ -9,6 +9,9 @@ interface Props {
   /** Selected day as YYYY-MM-DD, or null for no selection. */
   value: string | null;
   onChange: (iso: string) => void;
+  /** Allow picking future dates (budget periods plan ahead). Default false —
+   * sync starts and transaction dates live in the past. */
+  allowFuture?: boolean;
 }
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -18,7 +21,7 @@ const toIso = (y: number, monthIndex: number, d: number) =>
 
 /** Month-grid date picker. Future days are disabled — it picks past dates
  * (sync start, loan dates), not appointments. */
-export function CalendarPicker({ value, onChange }: Props) {
+export function CalendarPicker({ value, onChange, allowFuture = false }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
   const isDark = colorScheme === 'dark';
@@ -49,7 +52,7 @@ export function CalendarPicker({ value, onChange }: Props) {
   const rows: (number | null)[][] = [];
   for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
 
-  const atCurrentMonth = visible.y === now.getFullYear() && visible.m === now.getMonth();
+  const atCurrentMonth = !allowFuture && visible.y === now.getFullYear() && visible.m === now.getMonth();
   const shiftMonth = (delta: number) =>
     setVisible(({ y, m }) => {
       const d = new Date(y, m + delta, 1);
@@ -95,7 +98,7 @@ export function CalendarPicker({ value, onChange }: Props) {
           {row.map((day, ci) => {
             if (!day) return <View key={ci} style={styles.dayCell} />;
             const iso = toIso(visible.y, visible.m, day);
-            const isFuture = iso > todayIso;
+            const isFuture = !allowFuture && iso > todayIso;
             const isSelected = iso === value;
             const isToday = iso === todayIso;
             return (

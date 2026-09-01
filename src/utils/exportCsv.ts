@@ -8,6 +8,15 @@ function csvEscape(value: unknown): string {
   return s;
 }
 
+/** Long digit runs (telebirr accounts like 251933563343) get mangled into
+ * scientific notation by Excel/Sheets — the ="..." form keeps them as text. */
+function csvText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const s = String(value);
+  if (/^\d{7,}$/.test(s)) return `="${s}"`;
+  return csvEscape(s);
+}
+
 const HEADERS = [
   'Date', 'Bank', 'Account', 'Type', 'Amount', 'Total Amount', 'Service Charge',
   'VAT', 'Disaster Fund', 'Balance After', 'Counterparty', 'Category',
@@ -33,10 +42,12 @@ export async function exportTransactionsCsv(db: any): Promise<number | null> {
   const lines = [HEADERS.join(',')];
   for (const r of rows as any[]) {
     lines.push([
-      r.date, r.bank, r.account, r.type, r.amount, r.total_amount,
-      r.service_charge, r.vat, r.disaster_fund, r.balance_after,
-      r.counterparty, r.category, r.reference_no, r.source, r.note,
-    ].map(csvEscape).join(','));
+      csvEscape(r.date), csvEscape(r.bank), csvText(r.account), csvEscape(r.type),
+      csvEscape(r.amount), csvEscape(r.total_amount), csvEscape(r.service_charge),
+      csvEscape(r.vat), csvEscape(r.disaster_fund), csvEscape(r.balance_after),
+      csvEscape(r.counterparty), csvEscape(r.category), csvText(r.reference_no),
+      csvEscape(r.source), csvEscape(r.note),
+    ].join(','));
   }
   const csv = lines.join('\n');
 

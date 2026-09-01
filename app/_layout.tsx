@@ -128,6 +128,9 @@ function RootLayoutNav() {
           <Stack.Screen name="account/[id]" options={{ title: 'Account Detail' }} />
           <Stack.Screen name="customize-dashboard" options={{ title: 'Customize Dashboard' }} />
           <Stack.Screen name="manage-categories" options={{ title: 'Categories' }} />
+          <Stack.Screen name="manage-accounts" options={{ title: 'Accounts & Currencies' }} />
+          <Stack.Screen name="exchange-rates" options={{ title: 'Exchange Rates' }} />
+          <Stack.Screen name="budget-editor" options={{ title: 'Budget' }} />
           <Stack.Screen name="loans" options={{ title: 'Loans' }} />
         </Stack>
         {isLocked && isPasscodeSet && <LockScreen />}
