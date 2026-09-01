@@ -45,3 +45,4 @@ Messages with *.txt
 expo-env.d.ts
 # @end expo-cli
 HANDOFF_BUDGET_TRACKER_SESSION.MD
+android/app/budget-tracker.keystore
