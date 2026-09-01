@@ -1,97 +1,85 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity, Modal, Pressable, TextInput, Alert } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { StyleSheet, ScrollView, View, Text, TouchableOpacity, Alert } from 'react-native';
 import dayjs from 'dayjs';
+import { Feather } from '@expo/vector-icons';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
-import { getBudgetsForMonth, upsertBudget, deleteBudget, getExpenseCategories } from '@/src/db/repository/budgets';
-import { getMonthlySpendingByCategory } from '@/src/db/repository/transactions';
+import {
+  getPeriodBudgetsWithSpend, deletePeriodBudget, BudgetWithSpend,
+} from '@/src/db/repository/periodBudgets';
+import { getExpenseCategories } from '@/src/db/repository/budgets';
 import { BudgetProgressBar } from '@/src/components/BudgetProgressBar';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
 import { PieDonut } from '@/src/components/PieDonut';
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const shortDate = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return isNaN(d.getTime()) ? iso : `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
+};
+
 export default function BudgetsScreen() {
   const db = useDatabase();
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
+  const isDark = colorScheme === 'dark';
   const [currentMonth, setCurrentMonth] = useState(dayjs().format('YYYY-MM'));
-  const [budgets, setBudgets] = useState<any[]>([]);
-  const [spending, setSpending] = useState<Record<string, number>>({});
-  const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
-
-  // Add/Edit budget modal state
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [limitInput, setLimitInput] = useState('');
+  const [budgets, setBudgets] = useState<BudgetWithSpend[]>([]);
+  const [mainCats, setMainCats] = useState<any[]>([]);
+  const [allCats, setAllCats] = useState<any[]>([]);
 
   const loadData = useCallback(async () => {
-    const [budgetData, spendingData, cats] = await Promise.all([
-      getBudgetsForMonth(db, currentMonth),
-      getMonthlySpendingByCategory(db, currentMonth),
+    const [rows, cats] = await Promise.all([
+      getPeriodBudgetsWithSpend(db, currentMonth),
       getExpenseCategories(db),
     ]);
-    setBudgets(budgetData);
-    setExpenseCategories(cats);
-    const spendingMap: Record<string, number> = {};
-    spendingData.forEach((s: any) => {
-      if (s.categoryId) spendingMap[s.categoryId] = s.total;
-    });
-    setSpending(spendingMap);
+    setBudgets(rows);
+    setAllCats(cats);
+    setMainCats(cats.filter((c: any) => !c.parentId));
   }, [db, currentMonth]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
-  const totalBudgeted = budgets.reduce((sum: number, b: any) => sum + b.limitAmount, 0);
-  const totalSpent = budgets.reduce((sum: number, b: any) => sum + (spending[b.categoryId] ?? 0), 0);
+  const totalBudgeted = budgets.reduce((s, b) => s + b.limitAmount, 0);
+  const totalSpent = budgets.reduce((s, b) => s + b.spent, 0);
   const totalProgress = totalBudgeted > 0 ? Math.min(totalSpent / totalBudgeted, 1) : 0;
   const isOverTotal = totalSpent > totalBudgeted;
 
-  // Categories not yet budgeted
-  const budgetedCategoryIds = new Set(budgets.map((b: any) => b.categoryId));
-  const unbudgetedCategories = expenseCategories.filter((c: any) => !budgetedCategoryIds.has(c.id));
-
-  const handleSaveBudget = async () => {
-    if (!selectedCategoryId || !limitInput) return;
-    const amount = parseFloat(limitInput.replace(/,/g, ''));
-    if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid budget amount.');
-      return;
-    }
-    await upsertBudget(db, {
-      categoryId: selectedCategoryId,
-      month: currentMonth,
-      limitAmount: amount,
-    });
-    setShowAddModal(false);
-    setSelectedCategoryId(null);
-    setLimitInput('');
-    loadData();
+  const familyMain = (b: BudgetWithSpend) => {
+    if (!b.categoryIds?.length) return null;
+    const first = allCats.find((c) => c.id === b.categoryIds![0]);
+    const mainId = first?.parentId ?? first?.id;
+    return mainCats.find((c) => c.id === mainId) ?? null;
   };
+  const budgetLabel = (b: BudgetWithSpend) => {
+    const base = b.name
+      || (b.familyCount === null
+        ? 'All spending'
+        : b.familyCount === 1
+          ? familyMain(b)?.name ?? '1 category'
+          : `${b.familyCount} categories`);
+    return b.period === 'custom' ? `${base} · ${shortDate(b.rangeStart)}–${shortDate(b.rangeEnd)}` : base;
+  };
+  const budgetIcon = (b: BudgetWithSpend) =>
+    b.familyCount === 1 ? familyMain(b)?.icon ?? '🎯' : '🎯';
 
-  const handleDeleteBudget = (budget: any) => {
-    Alert.alert('Remove Budget', `Remove ${budget.categoryName} budget?`, [
+  const handleDelete = (b: BudgetWithSpend) => {
+    Alert.alert('Remove Budget', `Remove "${budgetLabel(b)}"?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove', style: 'destructive', onPress: async () => {
-          await deleteBudget(db, budget.id);
+          await deletePeriodBudget(db, b.id);
           loadData();
-        }
+        },
       },
     ]);
-  };
-
-  const handleEditBudget = (budget: any) => {
-    setSelectedCategoryId(budget.categoryId);
-    setLimitInput(budget.limitAmount.toString());
-    setShowAddModal(true);
-  };
-
-  const openAddModal = () => {
-    setSelectedCategoryId(unbudgetedCategories[0]?.id ?? null);
-    setLimitInput('');
-    setShowAddModal(true);
   };
 
   const prevMonth = () => setCurrentMonth(dayjs(currentMonth).subtract(1, 'month').format('YYYY-MM'));
@@ -100,7 +88,7 @@ export default function BudgetsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView>
-        {/* Month Selector */}
+        {/* Month Selector — drives the recurring monthly budgets */}
         <View style={styles.monthSelector}>
           <TouchableOpacity onPress={prevMonth} style={styles.arrowBtn}>
             <Text style={[styles.monthArrow, { color: colors.accent }]}>{'‹'}</Text>
@@ -114,50 +102,48 @@ export default function BudgetsScreen() {
         </View>
 
         {/* Total Summary Card */}
-        <View style={[styles.summaryCard, { backgroundColor: colors.goldDim, borderColor: colors.hairlineStrong }]}>
-          <View style={styles.summaryTop}>
-            <View>
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Total Spent</Text>
-              <Text style={[styles.summaryAmount, { color: isOverTotal ? colors.expense : colors.text }]}>
-                ETB {totalSpent.toLocaleString('en', { minimumFractionDigits: 2 })}
-              </Text>
+        {budgets.length > 0 && (
+          <View style={[styles.summaryCard, { backgroundColor: colors.goldDim, borderColor: colors.hairlineStrong }]}>
+            <View style={styles.summaryTop}>
+              <View>
+                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Total Spent</Text>
+                <Text style={[styles.summaryAmount, { color: isOverTotal ? colors.expense : colors.text }]}>
+                  ETB {totalSpent.toLocaleString('en', { minimumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={styles.summaryRight}>
+                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Budgeted</Text>
+                <Text style={[styles.summaryBudgeted, { color: colors.text }]}>
+                  ETB {totalBudgeted.toLocaleString('en', { minimumFractionDigits: 2 })}
+                </Text>
+              </View>
             </View>
-            <View style={styles.summaryRight}>
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Budgeted</Text>
-              <Text style={[styles.summaryBudgeted, { color: colors.text }]}>
-                ETB {totalBudgeted.toLocaleString('en', { minimumFractionDigits: 2 })}
-              </Text>
+            <View style={[styles.totalBar, { backgroundColor: colors.surfaceVariant }]}>
+              <View style={[styles.totalBarFill, {
+                width: `${totalProgress * 100}%`,
+                backgroundColor: isOverTotal ? colors.expense : totalProgress > 0.8 ? colors.gold : colors.income,
+              }]} />
             </View>
+            <Text style={[styles.summaryRemaining, { color: colors.textSecondary }]}>
+              {isOverTotal
+                ? `Over budget by ETB ${(totalSpent - totalBudgeted).toLocaleString('en', { minimumFractionDigits: 2 })}`
+                : `ETB ${(totalBudgeted - totalSpent).toLocaleString('en', { minimumFractionDigits: 2 })} remaining`
+              }
+            </Text>
           </View>
-          <View style={[styles.totalBar, { backgroundColor: colors.surfaceVariant }]}>
-            <View style={[styles.totalBarFill, {
-              width: `${totalProgress * 100}%`,
-              backgroundColor: isOverTotal ? colors.expense : totalProgress > 0.8 ? colors.gold : colors.income,
-            }]} />
-          </View>
-          <Text style={[styles.summaryRemaining, { color: colors.textSecondary }]}>
-            {isOverTotal
-              ? `Over budget by ETB ${(totalSpent - totalBudgeted).toLocaleString('en', { minimumFractionDigits: 2 })}`
-              : `ETB ${(totalBudgeted - totalSpent).toLocaleString('en', { minimumFractionDigits: 2 })} remaining`
-            }
-          </Text>
-        </View>
+        )}
 
-        {/* Spending distribution donut across budgeted categories */}
-        {budgets.length > 0 && totalSpent > 0 && (
+        {/* Spending share across budgets */}
+        {budgets.length > 1 && totalSpent > 0 && (
           <View style={[styles.donutCard, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
             <Text style={[styles.donutTitle, { color: colors.textSecondary }]}>Where it went</Text>
             <View style={{ alignItems: 'center' }}>
               <PieDonut
                 slices={budgets
-                  .map((b: any, i: number) => ({
-                    value: spending[b.categoryId] ?? 0,
-                    color: b.categoryColor || DONUT_COLORS[i % DONUT_COLORS.length],
-                    key: b.id,
-                  }))
-                  .filter((sl: any) => sl.value > 0)}
+                  .map((b, i) => ({ value: b.spent, color: DONUT_COLORS[i % DONUT_COLORS.length], key: b.id }))
+                  .filter((sl) => sl.value > 0)}
                 size={168}
-                strokeWidth={20}
+                strokeWidth={22}
               >
                 <Text style={[styles.donutPct, { color: isOverTotal ? colors.expense : colors.text }]}>
                   {Math.round(totalProgress * 100)}%
@@ -166,15 +152,14 @@ export default function BudgetsScreen() {
               </PieDonut>
             </View>
             <View style={styles.legendWrap}>
-              {budgets.map((b: any, i: number) => {
-                const spent = spending[b.categoryId] ?? 0;
-                if (spent <= 0) return null;
-                const share = totalSpent > 0 ? Math.round((spent / totalSpent) * 100) : 0;
+              {budgets.map((b, i) => {
+                if (b.spent <= 0) return null;
+                const share = totalSpent > 0 ? Math.round((b.spent / totalSpent) * 100) : 0;
                 return (
                   <View key={b.id} style={[styles.legendChip, { backgroundColor: colors.surfaceVariant }]}>
-                    <View style={[styles.legendDot, { backgroundColor: b.categoryColor || DONUT_COLORS[i % DONUT_COLORS.length] }]} />
+                    <View style={[styles.legendDot, { backgroundColor: DONUT_COLORS[i % DONUT_COLORS.length] }]} />
                     <Text style={[styles.legendText, { color: colors.textSecondary }]}>
-                      {b.categoryIcon ? `${b.categoryIcon} ` : ''}{b.categoryName} · {share}%
+                      {budgetIcon(b)} {budgetLabel(b)} · {share}%
                     </Text>
                   </View>
                 );
@@ -187,26 +172,56 @@ export default function BudgetsScreen() {
         {budgets.length === 0 ? (
           <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-              No budgets set for this month.
+              No budgets yet.
             </Text>
             <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
-              Tap the + button to create one.
+              Tap + to set a limit for this month or a custom period.
             </Text>
           </View>
         ) : (
-          budgets.map((budget: any) => (
+          budgets.map((b) => (
             <TouchableOpacity
-              key={budget.id}
+              key={b.id}
               activeOpacity={0.7}
-              onPress={() => handleEditBudget(budget)}
-              onLongPress={() => handleDeleteBudget(budget)}
+              onPress={() => router.push(`/budget-editor?id=${b.id}` as any)}
+              onLongPress={() => handleDelete(b)}
             >
               <BudgetProgressBar
-                categoryName={budget.categoryName}
-                categoryIcon={budget.categoryIcon}
-                spent={spending[budget.categoryId] ?? 0}
-                limit={budget.limitAmount}
+                categoryName={budgetLabel(b)}
+                categoryIcon={budgetIcon(b)}
+                spent={b.spent}
+                limit={b.limitAmount}
+                subtitle={b.perDayLeft != null
+                  ? `ETB ${b.perDayLeft.toLocaleString('en', { maximumFractionDigits: 0 })}/day for ${b.daysLeft} more day${b.daysLeft === 1 ? '' : 's'}`
+                  : undefined}
               />
+              {/* Per-category caps inside this budget */}
+              {b.categoryLimits && Object.keys(b.categoryLimits).length > 0 && (
+                <View style={[styles.capsCard, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
+                  {Object.entries(b.categoryLimits).map(([catId, cap]) => {
+                    const cat = allCats.find((c) => c.id === catId);
+                    const catSpent = b.perCategorySpend[catId] ?? 0;
+                    const over = catSpent > cap;
+                    const pct = Math.min(catSpent / cap, 1);
+                    return (
+                      <View key={catId} style={styles.capRow}>
+                        <Text style={[styles.capName, { color: colors.textSecondary }]} numberOfLines={1}>
+                          {cat ? `${cat.icon} ${cat.name}` : 'Category'}
+                        </Text>
+                        <View style={[styles.capBar, { backgroundColor: colors.surfaceVariant }]}>
+                          <View style={[styles.capBarFill, {
+                            width: `${pct * 100}%`,
+                            backgroundColor: over ? colors.expense : pct > 0.8 ? colors.gold : colors.income,
+                          }]} />
+                        </View>
+                        <Text style={[styles.capAmount, { color: over ? colors.expense : colors.textTertiary }]}>
+                          {catSpent.toLocaleString('en', { maximumFractionDigits: 0 })}/{cap.toLocaleString('en', { maximumFractionDigits: 0 })}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </TouchableOpacity>
           ))
         )}
@@ -218,70 +233,10 @@ export default function BudgetsScreen() {
       <TouchableOpacity
         style={[styles.fab, { backgroundColor: colors.gold }]}
         activeOpacity={0.8}
-        onPress={openAddModal}
+        onPress={() => router.push('/budget-editor' as any)}
       >
-        <Text style={[styles.fabText, { color: colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8' }]}>+</Text>
+        <Feather name="plus" size={26} color={isDark ? '#0C0B09' : '#FFFDF8'} />
       </TouchableOpacity>
-
-      {/* Add/Edit Budget Modal */}
-      <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={() => setShowAddModal(false)}>
-        <Pressable style={styles.overlay} onPress={() => setShowAddModal(false)}>
-          <View style={[styles.modal, { backgroundColor: colors.surface, borderColor: colors.hairlineStrong, borderWidth: 1 }]} onStartShouldSetResponder={() => true}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>
-              {budgetedCategoryIds.has(selectedCategoryId ?? '') ? 'Edit Budget' : 'Set Budget'}
-            </Text>
-
-            {/* Category selector */}
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Category</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll}>
-              <View style={styles.catRow}>
-                {/* Show all expense categories for editing, unbudgeted for adding */}
-                {expenseCategories.map((cat: any) => {
-                  const isSelected = selectedCategoryId === cat.id;
-                  return (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[styles.catChip, {
-                        backgroundColor: isSelected ? colors.goldDim : colors.surfaceVariant,
-                        borderColor: isSelected ? colors.hairlineStrong : 'transparent',
-                      }]}
-                      onPress={() => setSelectedCategoryId(cat.id)}
-                    >
-                      <Text style={[styles.catChipText, { color: isSelected ? colors.gold : colors.text }]}>
-                        {cat.icon} {cat.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </ScrollView>
-
-            {/* Amount input */}
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary, marginTop: 16 }]}>Monthly Limit (ETB)</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.surfaceVariant, color: colors.text, borderColor: colors.hairline }]}
-              value={limitInput}
-              onChangeText={setLimitInput}
-              placeholder="e.g. 5000"
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="numeric"
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity onPress={() => setShowAddModal(false)}>
-                <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: colors.gold, opacity: selectedCategoryId && limitInput ? 1 : 0.5 }]}
-                onPress={handleSaveBudget}
-                disabled={!selectedCategoryId || !limitInput}
-              >
-                <Text style={[styles.saveBtnText, { color: colorScheme === 'dark' ? '#0C0B09' : '#FFFDF8' }]}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 }
@@ -345,7 +300,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   emptyText: { fontFamily: fonts.sansMedium, fontSize: 14, marginBottom: 4 },
-  emptySubtext: { fontFamily: fonts.sans, fontSize: 12.5 },
+  emptySubtext: { fontFamily: fonts.sans, fontSize: 12.5, textAlign: 'center' },
   fab: {
     position: 'absolute',
     right: 20,
@@ -357,50 +312,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     elevation: 4,
   },
-  fabText: { fontFamily: fonts.sans, fontSize: 28, lineHeight: 30 },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
+  capsCard: {
+    marginHorizontal: 13, marginTop: -6, marginBottom: 10,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderRadius: 12, borderWidth: 1,
   },
-  modal: {
-    width: '100%',
-    borderRadius: 20,
-    padding: 24,
-    elevation: 8,
-  },
-  modalTitle: { fontFamily: fonts.sansBold, fontSize: 17, marginBottom: 16 },
-  fieldLabel: { ...sectionLabel, fontSize: 9.5, marginBottom: 8 },
-  catScroll: { maxHeight: 50 },
-  catRow: { flexDirection: 'row', gap: 8 },
-  catChip: {
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    borderRadius: 99,
-    borderWidth: 1,
-  },
-  catChipText: { fontFamily: fonts.sans, fontSize: 12.5 },
-  input: {
-    fontFamily: fonts.monoMedium,
-    fontSize: 16,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    marginTop: 20,
-    gap: 16,
-  },
-  cancelText: { fontFamily: fonts.sansMedium, fontSize: 13 },
-  saveBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 15,
-  },
-  saveBtnText: { fontFamily: fonts.sansBold, fontSize: 13 },
+  capRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 4 },
+  capName: { fontFamily: fonts.sans, fontSize: 11.5, width: 110 },
+  capBar: { flex: 1, height: 3, borderRadius: 3, overflow: 'hidden' },
+  capBarFill: { height: 3, borderRadius: 3 },
+  capAmount: { fontFamily: fonts.mono, fontSize: 10.5, minWidth: 70, textAlign: 'right' },
 });

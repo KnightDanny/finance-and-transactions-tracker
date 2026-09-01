@@ -11,10 +11,12 @@ interface Props {
   spent: number;
   limit: number;
   compact?: boolean;
+  /** Extra line under the bar, e.g. "ETB 120/day for 12 more days". */
+  subtitle?: string;
 }
 
 // Thin-track budget bar: sage on track → gold approaching → terracotta over.
-export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, compact }: Props) {
+export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, compact, subtitle }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
   const progress = limit > 0 ? Math.min(spent / limit, 1.3) : 0;
@@ -39,6 +41,11 @@ export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, co
         <View style={[styles.barBg, { backgroundColor: colors.surfaceVariant }]}>
           <View style={[styles.barFill, { width: `${displayProgress * 100}%`, backgroundColor: barColor }]} />
         </View>
+        {!!subtitle && (
+          <Text style={[styles.subtitle, { color: isOverBudget ? colors.expense : colors.textTertiary }]}>
+            {subtitle}
+          </Text>
+        )}
       </View>
     );
   }
@@ -56,6 +63,11 @@ export function BudgetProgressBar({ categoryName, categoryIcon, spent, limit, co
       <View style={[styles.barBg, { backgroundColor: colors.surfaceVariant }]}>
         <View style={[styles.barFill, { width: `${displayProgress * 100}%`, backgroundColor: barColor }]} />
       </View>
+      {!!subtitle && (
+        <Text style={[styles.subtitle, { color: isOverBudget ? colors.expense : colors.textTertiary }]}>
+          {subtitle}
+        </Text>
+      )}
       <View style={styles.footer}>
         {isOverBudget ? (
           <Text style={[styles.footerText, { color: colors.expense }]}>
@@ -120,4 +132,5 @@ const styles = StyleSheet.create({
   },
   compactName: { fontFamily: fonts.sansMedium, fontSize: 12.5, flex: 1 },
   compactAmount: { fontFamily: fonts.mono, fontSize: 11 },
+  subtitle: { fontFamily: fonts.mono, fontSize: 10, marginTop: 6 },
 });
