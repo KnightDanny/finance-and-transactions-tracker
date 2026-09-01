@@ -7,6 +7,8 @@ import { useRouter } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
 import { syncSms } from '@/src/sms/sync';
 import { countTransactionsBefore } from '@/src/db/repository/transactions';
+import { connectGmail, disconnectGmail, getConnectedEmail } from '@/src/email/gmail';
+import { syncEmails } from '@/src/email/sync';
 import { exportTransactionsCsv } from '@/src/utils/exportCsv';
 import { useAuthStore } from '@/src/auth/store';
 import { isBiometricAvailable } from '@/src/auth/biometric';
@@ -51,6 +53,11 @@ export default function SettingsScreen() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncFromDate, setSyncFromDate] = useState('');
+  const [gmailEmail, setGmailEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    getConnectedEmail().then(setGmailEmail);
+  }, []);
 
   const {
     isPasscodeSet, isBiometricEnabled, lockTimeoutSeconds,
@@ -137,6 +144,42 @@ export default function SettingsScreen() {
         },
       ]
     );
+  };
+
+  const handleEmailSync = async () => {
+    try {
+      const r = await syncEmails(db);
+      Alert.alert(
+        'Email Sync',
+        `${r.newTransactions} new, ${r.skippedDuplicates} skipped` +
+          (r.parseErrors > 0 ? `, ${r.parseErrors} unparsed` : '')
+      );
+    } catch (e: any) {
+      Alert.alert('Email Sync Failed', e.message);
+    }
+  };
+
+  const handleGmailPress = async () => {
+    if (gmailEmail) {
+      Alert.alert('Gmail', `Signed in to ${gmailEmail}`, [
+        { text: 'Close', style: 'cancel' },
+        { text: 'Sync Emails', onPress: handleEmailSync },
+        {
+          text: 'Disconnect', style: 'destructive', onPress: async () => {
+            await disconnectGmail();
+            setGmailEmail(null);
+          },
+        },
+      ]);
+      return;
+    }
+    try {
+      const email = await connectGmail();
+      setGmailEmail(email);
+      Alert.alert('Gmail Connected', `Signed in to ${email}`);
+    } catch (e: any) {
+      Alert.alert('Sign-in Failed', e.message ?? 'Could not sign in');
+    }
   };
 
   const handleSetupPasscode = async (pin: string) => {
@@ -234,12 +277,18 @@ export default function SettingsScreen() {
         }
       },
     },
+    {
+      title: 'Gmail (USD & Crypto)',
+      subtitle: gmailEmail ? `✓ Signed in to ${gmailEmail}` : 'Connect to import provider emails',
+      onPress: handleGmailPress,
+    },
     { title: 'Backup to Google Drive', subtitle: 'Not configured', onPress: () => Alert.alert('Backup', 'Coming soon.') },
     { title: 'Restore from Backup', subtitle: 'Restore data from Google Drive', onPress: () => Alert.alert('Backup', 'Coming soon.') },
     { title: 'Customize Dashboard', subtitle: 'Choose which sections show on Home', onPress: () => router.push('/customize-dashboard' as any) },
     { title: 'Loans', subtitle: 'Money lent and borrowed', onPress: () => router.push('/loans' as any) },
     { title: 'Manage Categories', subtitle: 'Add, edit, and delete categories', onPress: () => router.push('/manage-categories' as any) },
-    { title: 'Manage Accounts', subtitle: 'Label and organize accounts', onPress: () => {} },
+    { title: 'Accounts & Currencies', subtitle: 'Manual USD/USDT/USDC accounts and exchange rates', onPress: () => router.push('/manage-accounts' as any) },
+    { title: 'Exchange Rates', subtitle: 'What 1 USD/USDT/EUR is worth in ETB', onPress: () => router.push('/exchange-rates' as any) },
   ];
 
   return (
