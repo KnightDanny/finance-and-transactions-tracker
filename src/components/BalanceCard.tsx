@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, View, Text, Image } from 'react-native';
-import { formatCurrency } from '@/src/utils/currency';
+import { formatMoney } from '@/src/utils/currency';
 import { getBankConfig } from '@/src/utils/bankConfig';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -14,13 +14,14 @@ interface Props {
     accountNumber: string;
     label?: string;
     latestBalance?: number;
+    currency?: string;
   };
 }
 
 export function BalanceCard({ account }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
-  const config = getBankConfig(account.bank);
+  const config = getBankConfig(account.bank, account.label ?? account.accountNumber);
   const hidden = useBalancePrivacy((s) => s.hidden);
 
   return (
@@ -28,7 +29,11 @@ export function BalanceCard({ account }: Props) {
       <View style={[styles.spine, { backgroundColor: config.color }]} />
       <View style={styles.left}>
         <View style={[styles.logoChip, { backgroundColor: colors.surfaceVariant, borderColor: colors.hairline }]}>
-          <Image source={config.logo} style={styles.logo} resizeMode="contain" />
+          {config.emoji ? (
+            <Text style={styles.emoji}>{config.emoji}</Text>
+          ) : (
+            <Image source={config.logo} style={styles.logo} resizeMode="contain" />
+          )}
         </View>
         <View>
           <Text style={[styles.bank, { color: colors.textTertiary }]}>{config.name}</Text>
@@ -38,7 +43,7 @@ export function BalanceCard({ account }: Props) {
         </View>
       </View>
       <Text style={[styles.balance, { color: hidden ? colors.textTertiary : colors.text }]}>
-        {hidden ? MASKED : formatCurrency(account.latestBalance ?? 0)}
+        {hidden ? MASKED : formatMoney(account.latestBalance ?? 0, account.currency ?? 'ETB')}
       </Text>
     </View>
   );
@@ -76,6 +81,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logo: { width: 24, height: 24, borderRadius: 6 },
+  emoji: { fontSize: 17 },
   bank: { fontFamily: fonts.sansBold, fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 1.6 },
   name: { fontFamily: fonts.sansSemiBold, fontSize: 13.5, marginTop: 2 },
   balance: { fontFamily: fonts.monoMedium, fontSize: 15 },

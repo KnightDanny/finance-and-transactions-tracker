@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { StyleSheet, View, Text, Image, FlatList, TouchableOpacity, TextInput } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useDatabase } from '@/src/db/provider';
 import { getAccountById, updateAccountLabel } from '@/src/db/repository/accounts';
 import { getTransactionsByAccount } from '@/src/db/repository/transactions';
 import { TransactionCard } from '@/src/components/TransactionCard';
-import { formatCurrency } from '@/src/utils/currency';
+import { formatMoney } from '@/src/utils/currency';
 import { getBankConfig } from '@/src/utils/bankConfig';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -21,8 +21,11 @@ export default function AccountDetailScreen() {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState('');
 
-  useEffect(() => {
-    if (id) {
+  // Focus effect (not mount effect): coming back from a transaction detail
+  // after editing a note/category shows the fresh data
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
       Promise.all([
         getAccountById(db, id),
         getTransactionsByAccount(db, id, 100),
@@ -31,8 +34,8 @@ export default function AccountDetailScreen() {
         setTransactions(txns);
         setLabelDraft(acc?.label ?? '');
       });
-    }
-  }, [db, id]);
+    }, [db, id])
+  );
 
   const handleSaveLabel = async () => {
     if (!account) return;
@@ -50,7 +53,7 @@ export default function AccountDetailScreen() {
     );
   }
 
-  const config = getBankConfig(account.bank);
+  const config = getBankConfig(account.bank, account.label ?? account.accountNumber);
   const displayName = account.label || `...${account.accountNumber.slice(-4)}`;
 
   return (
@@ -89,7 +92,7 @@ export default function AccountDetailScreen() {
           {account.accountNumber}
         </Text>
         <Text style={[styles.balance, { color: config.textColor }]}>
-          {formatCurrency(account.latestBalance ?? 0)}
+          {formatMoney(account.latestBalance ?? 0, account.currency ?? 'ETB')}
         </Text>
       </View>
 
@@ -98,7 +101,7 @@ export default function AccountDetailScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity onPress={() => router.push(`/transaction/${item.id}` as any)}>
-            <TransactionCard transaction={item} />
+            <TransactionCard transaction={{ ...item, currency: account.currency }} />
           </TouchableOpacity>
         )}
         ListEmptyComponent={

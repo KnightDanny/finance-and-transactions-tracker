@@ -1,5 +1,10 @@
 export function formatCurrency(amount: number): string {
-  return `ETB ${amount.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(amount, 'ETB');
+}
+
+/** Format an amount in its own currency, e.g. "USDT 1,250.00". */
+export function formatMoney(amount: number, currency: string = 'ETB'): string {
+  return `${currency} ${amount.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**
