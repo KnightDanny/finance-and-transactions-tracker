@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
-import { formatCurrency } from '@/src/utils/currency';
+import { formatCurrency, formatMoney } from '@/src/utils/currency';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
@@ -10,18 +10,20 @@ import type { LoanWithProgress } from '@/src/db/repository/loans';
 
 interface Props {
   loans: LoanWithProgress[];
+  /** Outstanding totals converted to ETB (foreign-currency loans via rates). */
+  totals: { lentOutstanding: number; borrowedOutstanding: number };
 }
 
 /** Dashboard loans card: You get / You owe, top open loans, quick add. */
-export function LoansCard({ loans }: Props) {
+export function LoansCard({ loans, totals }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme];
   const router = useRouter();
   const hidden = useBalancePrivacy((s) => s.hidden);
 
   const open = loans.filter((l) => l.remaining > 0);
-  const lent = open.filter((l) => l.direction === 'lent').reduce((s, l) => s + l.remaining, 0);
-  const borrowed = open.filter((l) => l.direction === 'borrowed').reduce((s, l) => s + l.remaining, 0);
+  const lent = totals.lentOutstanding;
+  const borrowed = totals.borrowedOutstanding;
   const top = open.slice(0, 3);
 
   return (
@@ -71,7 +73,7 @@ export function LoansCard({ loans }: Props) {
                 <View style={[styles.dot, { backgroundColor: loan.direction === 'lent' ? colors.income : colors.expense }]} />
                 <Text style={[styles.person, { color: colors.text }]} numberOfLines={1}>{loan.person}</Text>
                 <Text style={[styles.amount, { color: loan.direction === 'lent' ? colors.income : colors.expense }]}>
-                  {hidden ? MASKED : formatCurrency(loan.remaining)}
+                  {hidden ? MASKED : formatMoney(loan.remaining, loan.currency)}
                 </Text>
               </TouchableOpacity>
             ))}

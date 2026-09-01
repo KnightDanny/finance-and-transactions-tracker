@@ -3,13 +3,16 @@ import {
   StyleSheet, ScrollView, View, Text, TouchableOpacity, Alert, Modal,
   Pressable, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import { useDatabase } from '@/src/db/provider';
 import {
-  getLoans, getLoanPayments, createLoan, addLoanPayment,
-  setLoanArchived, deleteLoan, LoanWithProgress,
+  getLoans, getLoanPayments, createLoan, updateLoan, addLoanPayment,
+  setLoanArchived, deleteLoan, getLoanTotals, LoanWithProgress,
 } from '@/src/db/repository/loans';
-import { formatCurrency } from '@/src/utils/currency';
+import { COMMON_CURRENCIES } from '@/src/db/repository/rates';
+import { AmountInput } from '@/src/components/AmountInput';
+import { formatCurrency, formatMoney } from '@/src/utils/currency';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
@@ -25,23 +28,35 @@ export default function LoansScreen() {
   const isDark = colorScheme === 'dark';
 
   const [loans, setLoans] = useState<LoanWithProgress[]>([]);
+  const [totals, setTotals] = useState({ lentOutstanding: 0, borrowedOutstanding: 0 });
   const [filter, setFilter] = useState<Filter>('all');
   const [showAdd, setShowAdd] = useState(false);
   const [detail, setDetail] = useState<LoanWithProgress | null>(null);
   const [payments, setPayments] = useState<any[]>([]);
 
-  // add form
+  // add/edit form — editingId set means the form saves changes to that loan
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [person, setPerson] = useState('');
   const [amount, setAmount] = useState('');
   const [direction, setDirection] = useState<'lent' | 'borrowed'>('lent');
+  const [currency, setCurrency] = useState('ETB');
   const [dueDate, setDueDate] = useState('');
   const [note, setNote] = useState('');
 
   // payment form
   const [payAmount, setPayAmount] = useState('');
 
-  const load = useCallback(() => getLoans(db).then(setLoans), [db]);
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(
+    () => Promise.all([getLoans(db).then(setLoans), getLoanTotals(db).then(setTotals)]),
+    [db]
+  );
+  // Reload on focus — loans change from the transaction screen (marks,
+  // splits, unmarks) while this screen sits in the stack
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   // Dashboard quick-add: /loans?add=1 opens the form immediately
   const { add } = useLocalSearchParams<{ add?: string }>();
@@ -55,6 +70,25 @@ export default function LoansScreen() {
     setPayments(await getLoanPayments(db, loan.id));
   };
 
+  const resetForm = () => {
+    setShowAdd(false);
+    setEditingId(null);
+    setPerson(''); setAmount(''); setDueDate(''); setNote('');
+    setDirection('lent'); setCurrency('ETB');
+  };
+
+  const startEdit = (loan: LoanWithProgress) => {
+    setEditingId(loan.id);
+    setPerson(loan.person);
+    setAmount(String(loan.principal));
+    setDirection(loan.direction);
+    setCurrency(loan.currency ?? 'ETB');
+    setDueDate(loan.dueDate ?? '');
+    setNote(loan.note ?? '');
+    setDetail(null);
+    setShowAdd(true);
+  };
+
   const submitAdd = async () => {
     const principal = parseFloat(amount.replace(/,/g, ''));
     if (!person.trim() || isNaN(principal) || principal <= 0) return;
@@ -62,13 +96,13 @@ export default function LoansScreen() {
       Alert.alert('Invalid date', 'Due date must be YYYY-MM-DD.');
       return;
     }
-    await createLoan(db, {
-      person: person.trim(), direction, principal,
-      note: note.trim() || undefined, startDate: today(),
-      dueDate: dueDate || undefined,
-    });
-    setShowAdd(false);
-    setPerson(''); setAmount(''); setDueDate(''); setNote(''); setDirection('lent');
+    const data = {
+      person: person.trim(), direction, principal, currency,
+      note: note.trim() || undefined, dueDate: dueDate || undefined,
+    };
+    if (editingId) await updateLoan(db, editingId, data);
+    else await createLoan(db, { ...data, startDate: today() });
+    resetForm();
     load();
   };
 
@@ -97,8 +131,9 @@ export default function LoansScreen() {
     load();
   };
 
-  const lentOut = loans.filter((l) => l.direction === 'lent').reduce((s, l) => s + l.remaining, 0);
-  const borrowedOut = loans.filter((l) => l.direction === 'borrowed').reduce((s, l) => s + l.remaining, 0);
+  // Header totals come converted to ETB (foreign-currency loans via saved rates)
+  const lentOut = totals.lentOutstanding;
+  const borrowedOut = totals.borrowedOutstanding;
   const visible = loans.filter((l) => filter === 'all' || l.direction === filter);
 
   return (
@@ -161,13 +196,13 @@ export default function LoansScreen() {
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[styles.person, { color: colors.text }]} numberOfLines={1}>{loan.person}</Text>
                     <Text style={[styles.meta, { color: colors.textTertiary }]}>
-                      {isLent ? 'lent' : 'borrowed'} {formatCurrency(loan.principal)}
+                      {isLent ? 'lent' : 'borrowed'} {formatMoney(loan.principal, loan.currency)}
                       {loan.dueDate ? ` · due ${loan.dueDate}` : ''}
                     </Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={[styles.remaining, { color: settled ? colors.textTertiary : dirColor }]}>
-                      {settled ? 'settled' : formatCurrency(loan.remaining)}
+                      {settled ? 'settled' : formatMoney(loan.remaining, loan.currency)}
                     </Text>
                     {!settled && (
                       <Text style={[styles.remainLabel, { color: colors.textTertiary }]}>
@@ -187,15 +222,16 @@ export default function LoansScreen() {
       </ScrollView>
 
       <TouchableOpacity style={[styles.fab, { backgroundColor: colors.gold }]} activeOpacity={0.8} onPress={() => setShowAdd(true)}>
-        <Text style={[styles.fabText, { color: isDark ? '#0C0B09' : '#FFFDF8' }]}>+</Text>
+        <Feather name="plus" size={26} color={isDark ? '#0C0B09' : '#FFFDF8'} />
       </TouchableOpacity>
 
-      {/* Add loan */}
-      <Modal visible={showAdd} transparent animationType="fade" onRequestClose={() => setShowAdd(false)}>
+      {/* Add / edit loan */}
+      <Modal visible={showAdd} transparent animationType="fade" onRequestClose={resetForm}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <Pressable style={styles.overlay} onPress={() => setShowAdd(false)}>
+        <Pressable style={styles.overlay} onPress={resetForm}>
           <View style={[styles.modal, { backgroundColor: colors.surface, borderColor: colors.hairlineStrong }]} onStartShouldSetResponder={() => true}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>New Loan</Text>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{editingId ? 'Edit Loan' : 'New Loan'}</Text>
 
             <View style={styles.typeRow}>
               {(['lent', 'borrowed'] as const).map((d) => (
@@ -219,10 +255,28 @@ export default function LoansScreen() {
               style={[styles.input, { backgroundColor: colors.surfaceVariant, color: colors.text, borderColor: colors.hairline }]}
               value={person} onChangeText={setPerson} placeholder="Who?" placeholderTextColor={colors.textTertiary}
             />
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary, marginTop: 12 }]}>Amount (ETB)</Text>
-            <TextInput
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary, marginTop: 12 }]}>Currency</Text>
+            <View style={styles.typeRow}>
+              {COMMON_CURRENCIES.filter((c) => c !== 'USDC').map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.currencyChip, {
+                    backgroundColor: currency === c ? colors.goldDim : colors.surfaceVariant,
+                    borderColor: currency === c ? colors.hairlineStrong : 'transparent',
+                  }]}
+                  onPress={() => setCurrency(c)}
+                >
+                  <Text style={[styles.typeText, { color: currency === c ? colors.gold : colors.textSecondary }]}>
+                    {c}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary, marginTop: 12 }]}>Amount ({currency})</Text>
+            <AmountInput
               style={[styles.input, styles.mono, { backgroundColor: colors.surfaceVariant, color: colors.text, borderColor: colors.hairline }]}
-              value={amount} onChangeText={setAmount} placeholder="0.00" placeholderTextColor={colors.textTertiary} keyboardType="numeric"
+              value={amount} onChangeText={setAmount} placeholder="0.00" placeholderTextColor={colors.textTertiary}
             />
             <Text style={[styles.fieldLabel, { color: colors.textSecondary, marginTop: 12 }]}>Due date (optional, YYYY-MM-DD)</Text>
             <TextInput
@@ -236,7 +290,7 @@ export default function LoansScreen() {
             />
 
             <View style={styles.actions}>
-              <TouchableOpacity onPress={() => setShowAdd(false)}>
+              <TouchableOpacity onPress={resetForm}>
                 <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -244,9 +298,12 @@ export default function LoansScreen() {
                 disabled={!person.trim() || !amount}
                 onPress={submitAdd}
               >
-                <Text style={[styles.saveText, { color: isDark ? '#0C0B09' : '#FFFDF8' }]}>Add Loan</Text>
+                <Text style={[styles.saveText, { color: isDark ? '#0C0B09' : '#FFFDF8' }]}>
+                  {editingId ? 'Save Changes' : 'Add Loan'}
+                </Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
         </Pressable>
         </KeyboardAvoidingView>
@@ -257,14 +314,15 @@ export default function LoansScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <Pressable style={styles.overlay} onPress={() => setDetail(null)}>
           <View style={[styles.modal, { backgroundColor: colors.surface, borderColor: colors.hairlineStrong }]} onStartShouldSetResponder={() => true}>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {detail && (
               <>
                 <Text style={[styles.modalTitle, { color: colors.text }]}>{detail.person}</Text>
                 <Text style={[styles.detailLine, { color: colors.textSecondary }]}>
                   {detail.direction === 'lent' ? 'You lent' : 'You borrowed'}{' '}
-                  <Text style={[styles.mono, { color: colors.text }]}>{formatCurrency(detail.principal)}</Text>
+                  <Text style={[styles.mono, { color: colors.text }]}>{formatMoney(detail.principal, detail.currency)}</Text>
                   {'  ·  paid '}
-                  <Text style={[styles.mono, { color: colors.text }]}>{formatCurrency(detail.paid)}</Text>
+                  <Text style={[styles.mono, { color: colors.text }]}>{formatMoney(detail.paid, detail.currency)}</Text>
                 </Text>
                 <Text style={[styles.detailRemaining, {
                   color: detail.remaining <= 0 ? colors.income
@@ -272,20 +330,22 @@ export default function LoansScreen() {
                 }]}>
                   {detail.remaining <= 0
                     ? '✓ Fully settled'
-                    : `${formatCurrency(detail.remaining)} ${detail.direction === 'lent' ? 'left to collect' : 'left to pay'}`}
+                    : `${formatMoney(detail.remaining, detail.currency)} ${detail.direction === 'lent' ? 'left to collect' : 'left to pay'}`}
                 </Text>
 
                 {detail.remaining > 0 && (
                   <View style={styles.payRow}>
-                    <TextInput
-                      style={[styles.input, styles.mono, {
-                        flex: 1, backgroundColor: colors.surfaceVariant,
-                        color: colors.text, borderColor: colors.hairline,
-                      }]}
-                      value={payAmount} onChangeText={setPayAmount}
-                      placeholder={`up to ${formatCurrency(detail.remaining)}`}
-                      placeholderTextColor={colors.textTertiary} keyboardType="numeric"
-                    />
+                    <View style={{ flex: 1 }}>
+                      <AmountInput
+                        style={[styles.input, styles.mono, {
+                          backgroundColor: colors.surfaceVariant,
+                          color: colors.text, borderColor: colors.hairline,
+                        }]}
+                        value={payAmount} onChangeText={setPayAmount}
+                        placeholder={`up to ${formatMoney(detail.remaining, detail.currency)}`}
+                        placeholderTextColor={colors.textTertiary}
+                      />
+                    </View>
                     <TouchableOpacity
                       style={[styles.saveBtn, { backgroundColor: colors.gold, opacity: payAmount ? 1 : 0.5 }]}
                       disabled={!payAmount}
@@ -304,7 +364,7 @@ export default function LoansScreen() {
                     {payments.map((p: any, i: number) => (
                       <View key={p.id} style={[styles.payItem, i < payments.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.hairline }]}>
                         <Text style={[styles.payDate, { color: colors.textTertiary }]}>{p.date}</Text>
-                        <Text style={[styles.payAmt, { color: colors.text }]}>{formatCurrency(p.amount)}</Text>
+                        <Text style={[styles.payAmt, { color: colors.text }]}>{formatMoney(p.amount, detail.currency)}</Text>
                       </View>
                     ))}
                   </View>
@@ -313,6 +373,9 @@ export default function LoansScreen() {
                 <View style={styles.actions}>
                   <TouchableOpacity onPress={() => confirmDelete(detail)}>
                     <Text style={[styles.cancelText, { color: colors.expense }]}>Delete</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => startEdit(detail)}>
+                    <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Edit</Text>
                   </TouchableOpacity>
                   {detail.remaining <= 0 && !detail.archived && (
                     <TouchableOpacity onPress={() => archive(detail)}>
@@ -325,6 +388,7 @@ export default function LoansScreen() {
                 </View>
               </>
             )}
+            </ScrollView>
           </View>
         </Pressable>
         </KeyboardAvoidingView>
@@ -346,6 +410,7 @@ const styles = StyleSheet.create({
   filterRow: { flexDirection: 'row', gap: 8, margin: 13 },
   filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 99, borderWidth: 1 },
   filterText: { fontFamily: fonts.sansSemiBold, fontSize: 12 },
+  currencyChip: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 99, borderWidth: 1 },
   emptyCard: { margin: 13, padding: 28, borderRadius: 16, borderWidth: 1, alignItems: 'center' },
   emptyText: { fontFamily: fonts.sans, fontSize: 13, textAlign: 'center', lineHeight: 19 },
   card: {
@@ -369,7 +434,7 @@ const styles = StyleSheet.create({
   },
   fabText: { fontFamily: fonts.sans, fontSize: 28, lineHeight: 30 },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modal: { width: '100%', borderRadius: 20, borderWidth: 1, padding: 22 },
+  modal: { width: '100%', maxHeight: '100%', borderRadius: 20, borderWidth: 1, padding: 22 },
   modalTitle: { fontFamily: fonts.sansBold, fontSize: 17, marginBottom: 14 },
   typeRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   typeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 99, borderWidth: 1 },

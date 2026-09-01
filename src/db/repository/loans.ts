@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { generateId as uuid } from '@/src/utils/id';
-import { loans, loanPayments, transactions } from '../schema';
+import { loans, loanPayments, transactions, transactionSplits } from '../schema';
+import { getRateMap } from './rates';
 
 type Database = any;
 
@@ -9,6 +10,7 @@ export interface LoanWithProgress {
   person: string;
   direction: 'lent' | 'borrowed';
   principal: number;
+  currency: string; // loan's own currency ('ETB', 'USDT', ...)
   note: string | null;
   startDate: string;
   dueDate: string | null;
@@ -19,7 +21,8 @@ export interface LoanWithProgress {
 
 export async function getLoans(db: Database, includeArchived = false): Promise<LoanWithProgress[]> {
   const rows = await db.all(sql`
-    SELECT l.id, l.person, l.direction, l.principal, l.note,
+    SELECT l.id, l.person, l.direction, l.principal,
+           COALESCE(l.currency, 'ETB') AS currency, l.note,
            l.start_date AS startDate, l.due_date AS dueDate, l.archived,
            COALESCE(SUM(p.amount), 0) AS paid
     FROM loans l
@@ -35,14 +38,20 @@ export async function getLoans(db: Database, includeArchived = false): Promise<L
   }));
 }
 
-/** Outstanding totals: how much others owe you (lent) and you owe others (borrowed). */
+/**
+ * Outstanding totals in ETB: how much others owe you (lent) and you owe others
+ * (borrowed). Foreign-currency loans convert via saved rates; a loan whose
+ * currency has no saved rate contributes nothing (same rule as account
+ * balances in getTotalNetWorth).
+ */
 export async function getLoanTotals(db: Database): Promise<{ lentOutstanding: number; borrowedOutstanding: number }> {
-  const rows = await getLoans(db, false);
+  const [rows, rates] = await Promise.all([getLoans(db, false), getRateMap(db)]);
   let lentOutstanding = 0;
   let borrowedOutstanding = 0;
   for (const l of rows) {
-    if (l.direction === 'lent') lentOutstanding += l.remaining;
-    else borrowedOutstanding += l.remaining;
+    const etb = l.remaining * (rates[l.currency ?? 'ETB'] ?? 0);
+    if (l.direction === 'lent') lentOutstanding += etb;
+    else borrowedOutstanding += etb;
   }
   return { lentOutstanding, borrowedOutstanding };
 }
@@ -51,6 +60,7 @@ export async function createLoan(db: Database, data: {
   person: string;
   direction: 'lent' | 'borrowed';
   principal: number;
+  currency?: string;
   note?: string;
   startDate: string;
   dueDate?: string;
@@ -61,12 +71,32 @@ export async function createLoan(db: Database, data: {
     person: data.person,
     direction: data.direction,
     principal: data.principal,
+    currency: (data.currency ?? 'ETB').toUpperCase(),
     note: data.note,
     startDate: data.startDate,
     dueDate: data.dueDate,
     createdAt: new Date().toISOString(),
   });
   return id;
+}
+
+/** Edit a loan's details. Payments stay as they are — outstanding rebalances. */
+export async function updateLoan(db: Database, id: string, data: {
+  person: string;
+  direction: 'lent' | 'borrowed';
+  principal: number;
+  currency?: string;
+  note?: string;
+  dueDate?: string;
+}) {
+  await db.update(loans).set({
+    person: data.person,
+    direction: data.direction,
+    principal: data.principal,
+    currency: (data.currency ?? 'ETB').toUpperCase(),
+    note: data.note ?? null,
+    dueDate: data.dueDate ?? null,
+  }).where(eq(loans.id, id));
 }
 
 export async function addLoanPayment(db: Database, loanId: string, amount: number, date: string, note?: string) {
@@ -84,8 +114,9 @@ export async function setLoanArchived(db: Database, id: string, archived: boolea
 export async function deleteLoan(db: Database, id: string) {
   await db.delete(loanPayments).where(eq(loanPayments.loanId, id));
   await db.delete(loans).where(eq(loans.id, id));
-  // A transaction marked as this loan loses its link (stays a normal transaction)
+  // A transaction (or split) marked as this loan loses its link
   await db.update(transactions).set({ loanId: null }).where(eq(transactions.loanId, id));
+  await db.update(transactionSplits).set({ loanId: null }).where(eq(transactionSplits.loanId, id));
 }
 
 /**
@@ -95,12 +126,13 @@ export async function deleteLoan(db: Database, id: string) {
  */
 export async function markTransactionAsLoan(
   db: Database,
-  txn: { id: string; type: string; amount: number; counterparty?: string | null; date: string }
+  txn: { id: string; type: string; amount: number; counterparty?: string | null; date: string; currency?: string | null }
 ): Promise<string> {
   const loanId = await createLoan(db, {
     person: txn.counterparty?.trim() || 'Unknown',
     direction: txn.type === 'credit' ? 'borrowed' : 'lent',
     principal: txn.amount,
+    currency: txn.currency ?? 'ETB',
     startDate: txn.date,
     note: 'Marked from transaction',
   });
