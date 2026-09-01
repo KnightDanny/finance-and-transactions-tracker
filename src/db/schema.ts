@@ -3,15 +3,30 @@ import { sqliteTable, text, real, integer, uniqueIndex } from 'drizzle-orm/sqlit
 // ── Accounts ──────────────────────────────────────────────
 export const accounts = sqliteTable('accounts', {
   id: text('id').primaryKey(),
-  bank: text('bank').notNull(), // 'CBE' | 'TELEBIRR'
+  bank: text('bank').notNull(), // 'CBE' | 'TELEBIRR' | ... | 'MANUAL'
   accountNumber: text('account_number').notNull(),
   label: text('label'),
   latestBalance: real('latest_balance'),
   latestBalanceAt: text('latest_balance_at'),
+  // Multi-currency: balances are stored in the account's own currency and
+  // converted to ETB (via currency_rates) only for totals/net worth
+  currency: text('currency').notNull().default('ETB'),
+  // Manual accounts (USD/USDT/USDC wallets etc.) are user-maintained: no SMS
+  // feeds them, balance updates are entered by hand
+  isManual: integer('is_manual', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull().default(new Date().toISOString()),
 }, (table) => [
   uniqueIndex('accounts_bank_number_idx').on(table.bank, table.accountNumber),
 ]);
+
+// ── Currency Rates (X → ETB) ──────────────────────────────
+export const currencyRates = sqliteTable('currency_rates', {
+  currency: text('currency').primaryKey(), // 'USD', 'USDT', 'USDC', ...
+  rateToEtb: real('rate_to_etb').notNull(), // 1 unit = X ETB
+  updatedAt: text('updated_at'),
+  // 'manual' (user-entered, never overwritten by fetch) | 'auto' (fetched)
+  source: text('source').notNull().default('manual'),
+});
 
 // ── Categories ────────────────────────────────────────────
 export const categories = sqliteTable('categories', {
@@ -21,6 +36,9 @@ export const categories = sqliteTable('categories', {
   color: text('color'), // '#RRGGBB', optional — pie/legend tint
   type: text('type').notNull().default('expense'), // 'expense' | 'income'
   isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  // Cashew-style subcategories: set → this is a subcategory of that category
+  // (one level deep). Subcategories inherit the parent's type and color family.
+  parentId: text('parent_id'),
 });
 
 // ── Transactions ──────────────────────────────────────────
@@ -46,6 +64,9 @@ export const transactions = sqliteTable('transactions', {
   // Set when the user marks this transaction as a loan: credit → borrowed,
   // debit → lent. The loan record is created from the transaction.
   loanId: text('loan_id'),
+  // Two legs of a P2P trade or manual transfer share one id — both legs are
+  // excluded from income/expense aggregates (moving money, not earning/spending)
+  transferPairId: text('transfer_pair_id'),
   createdAt: text('created_at').notNull().default(new Date().toISOString()),
 }, (table) => [
   uniqueIndex('transactions_ref_account_idx').on(table.referenceNo, table.accountId),
@@ -104,11 +125,48 @@ export const loans = sqliteTable('loans', {
   person: text('person').notNull(),
   direction: text('direction').notNull(), // 'lent' | 'borrowed'
   principal: real('principal').notNull(),
+  currency: text('currency').notNull().default('ETB'), // loan denominated in this currency (USDT loans etc.)
   note: text('note'),
   startDate: text('start_date').notNull(), // ISO date
   dueDate: text('due_date'), // ISO date, optional
   archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull().default(new Date().toISOString()),
+});
+
+// ── Period Budgets ────────────────────────────────────────
+// A budget = spending limit over a period with a category filter:
+// 'month' recurs (progress tracks whichever month is being viewed);
+// 'custom' is a fixed date range. categories_json = JSON array of included
+// MAIN category ids; NULL = all spending (new categories included as they
+// appear).
+export const periodBudgets = sqliteTable('period_budgets', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  limitAmount: real('limit_amount').notNull(),
+  period: text('period').notNull().default('month'), // 'month' | 'custom'
+  startDate: text('start_date'),
+  endDate: text('end_date'),
+  categoriesJson: text('categories_json'),
+  // Optional per-category caps inside this budget: JSON {mainCategoryId: limit}
+  categoryLimitsJson: text('category_limits_json'),
+  // Whether this budget appears in the Home dashboard's Budgets card
+  showOnHome: integer('show_on_home', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull().default(''),
+});
+
+// ── Transaction Splits ────────────────────────────────────
+// One transaction, several purposes: each split carves an amount out of the
+// parent for a different category (or a loan). The remainder stays under the
+// parent's own category. The transaction row itself never changes — balances
+// and dedupe stay intact.
+export const transactionSplits = sqliteTable('transaction_splits', {
+  id: text('id').primaryKey(),
+  transactionId: text('transaction_id').notNull().references(() => transactions.id),
+  amount: real('amount').notNull(),
+  categoryId: text('category_id').references(() => categories.id),
+  loanId: text('loan_id').references(() => loans.id),
+  note: text('note'),
+  createdAt: text('created_at').notNull().default(''),
 });
 
 // ── Loan Payments (repayments/collections against a loan) ─

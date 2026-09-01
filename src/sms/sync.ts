@@ -3,7 +3,7 @@ import { parseSms, isFromKnownBank, looksLikeTransaction } from './dispatcher';
 import { readSmsInbox, getMockSmsData } from './reader';
 import { RawSms } from './types';
 import { upsertAccount, getAccountsByBank, getAllAccounts } from '@/src/db/repository/accounts';
-import { insertTransaction } from '@/src/db/repository/transactions';
+import { insertTransaction, autoPairOwnTransfers } from '@/src/db/repository/transactions';
 import { insertBalanceSnapshot } from '@/src/db/repository/balanceSnapshots';
 import { checkReconciliation } from '@/src/reconciliation/engine';
 import { autoCategorize } from '@/src/budget/categories';
@@ -121,7 +121,11 @@ export async function syncSms(db: any, useMockData: boolean = false, fromTimesta
     messages = await readSmsInbox(cutoff);
   }
 
-  if (messages.length === 0) return result;
+  if (messages.length === 0) {
+    // Still link any unpaired own-transfer legs already in the ledger
+    await autoPairOwnTransfers(db);
+    return result;
+  }
 
   // Sort by timestamp ascending (oldest first)
   messages.sort((a, b) => a.date - b.date);
@@ -246,6 +250,9 @@ export async function syncSms(db: any, useMockData: boolean = false, fromTimesta
       await db.update(smsSyncState).set({ lastSyncedAt: newestTimestamp }).where(eq(smsSyncState.id, 1));
     }
   }
+
+  // Link the two legs of local own-account transfers (idempotent)
+  await autoPairOwnTransfers(db);
 
   return result;
 }

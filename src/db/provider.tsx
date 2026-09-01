@@ -36,6 +36,8 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
           label TEXT,
           latest_balance REAL,
           latest_balance_at TEXT,
+          currency TEXT NOT NULL DEFAULT 'ETB',
+          is_manual INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
@@ -134,11 +136,46 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
           date TEXT NOT NULL,
           note TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS currency_rates (
+          currency TEXT PRIMARY KEY,
+          rate_to_etb REAL NOT NULL,
+          updated_at TEXT,
+          source TEXT NOT NULL DEFAULT 'manual'
+        );
+
+        CREATE TABLE IF NOT EXISTS period_budgets (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          limit_amount REAL NOT NULL,
+          period TEXT NOT NULL DEFAULT 'month',
+          start_date TEXT,
+          end_date TEXT,
+          categories_json TEXT,
+          created_at TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS transaction_splits (
+          id TEXT PRIMARY KEY,
+          transaction_id TEXT NOT NULL REFERENCES transactions(id),
+          amount REAL NOT NULL,
+          category_id TEXT REFERENCES categories(id),
+          loan_id TEXT REFERENCES loans(id),
+          note TEXT,
+          created_at TEXT NOT NULL DEFAULT ''
+        );
       `);
 
       // v1.1 column additions for databases created before them (no-op if present)
       try { await sqlite.execAsync('ALTER TABLE categories ADD COLUMN color TEXT'); } catch {}
       try { await sqlite.execAsync('ALTER TABLE transactions ADD COLUMN loan_id TEXT'); } catch {}
+      try { await sqlite.execAsync("ALTER TABLE accounts ADD COLUMN currency TEXT NOT NULL DEFAULT 'ETB'"); } catch {}
+      try { await sqlite.execAsync('ALTER TABLE accounts ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0'); } catch {}
+      try { await sqlite.execAsync("ALTER TABLE loans ADD COLUMN currency TEXT NOT NULL DEFAULT 'ETB'"); } catch {}
+      try { await sqlite.execAsync('ALTER TABLE transactions ADD COLUMN transfer_pair_id TEXT'); } catch {}
+      try { await sqlite.execAsync('ALTER TABLE categories ADD COLUMN parent_id TEXT'); } catch {}
+      try { await sqlite.execAsync('ALTER TABLE period_budgets ADD COLUMN category_limits_json TEXT'); } catch {}
+      try { await sqlite.execAsync('ALTER TABLE period_budgets ADD COLUMN show_on_home INTEGER NOT NULL DEFAULT 1'); } catch {}
 
       // Seed default categories
       await seedDefaultCategories(database);

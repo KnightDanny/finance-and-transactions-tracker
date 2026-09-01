@@ -13,6 +13,7 @@ const DEFAULT_CATEGORIES = [
   { name: 'Health', icon: '🏥', type: 'expense' as const },
   { name: 'Education', icon: '📚', type: 'expense' as const },
   { name: 'Transfer Out', icon: '↗️', type: 'expense' as const },
+  { name: 'Transaction Fees', icon: '🧾', type: 'expense' as const },
   { name: 'Withdrawal', icon: '🏧', type: 'expense' as const },
   { name: 'Other Expense', icon: '📎', type: 'expense' as const },
   // Income categories
@@ -21,16 +22,30 @@ const DEFAULT_CATEGORIES = [
   { name: 'Other Income', icon: '💵', type: 'income' as const },
 ];
 
+/** Bank/telebirr charges live under this category in the spending breakdowns. */
+export const FEES_CATEGORY_NAME = 'Transaction Fees';
+
 export async function seedDefaultCategories(db: any) {
   const existing = await db.select().from(categories);
-  if (existing.length > 0) return;
-
-  for (const cat of DEFAULT_CATEGORIES) {
+  if (existing.length === 0) {
+    for (const cat of DEFAULT_CATEGORIES) {
+      await db.insert(categories).values({
+        id: uuid(),
+        name: cat.name,
+        icon: cat.icon,
+        type: cat.type,
+        isDefault: true,
+      });
+    }
+    return;
+  }
+  // Categories added after the first release — ensure they exist on old installs
+  if (!existing.some((c: any) => c.name === FEES_CATEGORY_NAME)) {
     await db.insert(categories).values({
       id: uuid(),
-      name: cat.name,
-      icon: cat.icon,
-      type: cat.type,
+      name: FEES_CATEGORY_NAME,
+      icon: '🧾',
+      type: 'expense',
       isDefault: true,
     });
   }

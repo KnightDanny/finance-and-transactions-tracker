@@ -5,15 +5,18 @@ import {
 } from 'react-native';
 import { useDatabase } from '@/src/db/provider';
 import { getAllCategories } from '@/src/db/repository/budgets';
-import { createCategory, updateCategory, deleteCategory, getCategoryUsage } from '@/src/db/repository/categories';
+import { createCategory, createSubcategory, updateCategory, deleteCategory, getCategoryUsage } from '@/src/db/repository/categories';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
 
-// Muted swatches in the ledger palette family (Cashew-style colour strip)
+// Swatches in the ledger palette family (Cashew-style picker). Every category
+// must own a UNIQUE color — taken swatches are shown dimmed and disabled.
 const CATEGORY_COLORS = [
-  '#D4B96A', '#8FB573', '#C97B67', '#5E9BC9', '#8D6CAB',
-  '#C99667', '#7FAEA3', '#B08EA2', '#6577A0', '#98917F',
+  '#D4B96A', '#D24545', '#8FB573', '#5E9BC9', '#8D6CAB', '#C97B67',
+  '#C99667', '#7FAEA3', '#B08EA2', '#6577A0', '#A6803A', '#5C8A72',
+  '#C25B72', '#4E8FB0', '#9A7BC9', '#D08A3E', '#4F9B8F', '#8A9B4F',
+  '#B76E4A', '#7B87C9', '#D98AA6', '#A9C46C', '#5C6B7A', '#98917F',
 ];
 
 interface EditorState {
@@ -22,9 +25,9 @@ interface EditorState {
   icon: string;
   color: string;
   type: 'expense' | 'income';
+  /** Set → editing a subcategory of that main category. */
+  parentId?: string | null;
 }
-
-const EMPTY_EDITOR: EditorState = { name: '', icon: '', color: CATEGORY_COLORS[0], type: 'expense' };
 
 export default function ManageCategoriesScreen() {
   const db = useDatabase();
@@ -37,18 +40,55 @@ export default function ManageCategoriesScreen() {
   const load = useCallback(() => getAllCategories(db).then(setCats), [db]);
   useEffect(() => { load(); }, [load]);
 
-  const openAdd = () => setEditor({ ...EMPTY_EDITOR });
+  /** Colors already owned by OTHER categories — not selectable again. */
+  const takenColors = (excludeId?: string) =>
+    new Set(
+      cats
+        .filter((c) => c.id !== excludeId && c.color)
+        .map((c) => String(c.color).toLowerCase())
+    );
+
+  const firstFreeColor = () => {
+    const taken = takenColors();
+    return CATEGORY_COLORS.find((c) => !taken.has(c.toLowerCase())) ?? CATEGORY_COLORS[0];
+  };
+
+  const openAdd = () => setEditor({ name: '', icon: '', color: firstFreeColor(), type: 'expense' });
   const openEdit = (c: any) =>
-    setEditor({ id: c.id, name: c.name, icon: c.icon ?? '', color: c.color ?? CATEGORY_COLORS[0], type: c.type });
+    setEditor({
+      id: c.id, name: c.name, icon: c.icon ?? '',
+      color: c.color ?? firstFreeColor(), type: c.type, parentId: c.parentId ?? null,
+    });
+
+  const childrenOf = (id?: string) => (id ? cats.filter((c) => c.parentId === id) : []);
+
+  // Subcategory add-row inside the editor
+  const [subName, setSubName] = useState('');
+  const [subIcon, setSubIcon] = useState('');
+  const addSub = async () => {
+    if (!editor?.id || !subName.trim()) return;
+    try {
+      await createSubcategory(db, editor.id, { name: subName.trim(), icon: subIcon || undefined });
+      setSubName('');
+      setSubIcon('');
+      load();
+    } catch (e: any) {
+      Alert.alert('Could not add', e.message?.includes('UNIQUE') ? 'A category with that name already exists.' : e.message);
+    }
+  };
 
   const save = async () => {
     if (!editor || !editor.name.trim()) return;
+    const isSub = !!editor.parentId;
+    if (!isSub && takenColors(editor.id).has(editor.color.toLowerCase())) {
+      Alert.alert('Color taken', 'Another category already uses this color — pick a free one.');
+      return;
+    }
     try {
       if (editor.id) {
-        await updateCategory(db, editor.id, {
-          name: editor.name.trim(), icon: editor.icon || undefined,
-          color: editor.color, type: editor.type,
-        });
+        await updateCategory(db, editor.id, isSub
+          ? { name: editor.name.trim(), icon: editor.icon || undefined }
+          : { name: editor.name.trim(), icon: editor.icon || undefined, color: editor.color, type: editor.type });
       } else {
         await createCategory(db, {
           name: editor.name.trim(), icon: editor.icon || undefined,
@@ -79,26 +119,39 @@ export default function ManageCategoriesScreen() {
     );
   };
 
-  const expense = cats.filter((c) => c.type === 'expense');
-  const income = cats.filter((c) => c.type === 'income');
+  const expense = cats.filter((c) => c.type === 'expense' && !c.parentId);
+  const income = cats.filter((c) => c.type === 'income' && !c.parentId);
 
   const renderGroup = (title: string, list: any[]) => (
     <>
       <Text style={[styles.sectionHeader, { color: colors.textSecondary }]}>{title}</Text>
       <View style={[styles.group, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
         {list.map((c, i) => (
-          <TouchableOpacity
-            key={c.id}
-            style={[styles.row, i < list.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.hairline }]}
-            onPress={() => openEdit(c)}
-            onLongPress={() => confirmDelete(c)}
-          >
-            <View style={[styles.iconChip, { backgroundColor: colors.surfaceVariant, borderColor: c.color ?? colors.hairline }]}>
-              <Text style={styles.iconText}>{c.icon || '▪'}</Text>
-            </View>
-            <Text style={[styles.name, { color: colors.text }]}>{c.name}</Text>
-            {c.isDefault ? <Text style={[styles.defaultTag, { color: colors.textTertiary }]}>default</Text> : null}
-          </TouchableOpacity>
+          <View key={c.id}>
+            <TouchableOpacity
+              style={[styles.row, (i < list.length - 1 || childrenOf(c.id).length > 0) && { borderBottomWidth: 1, borderBottomColor: colors.hairline }]}
+              onPress={() => openEdit(c)}
+              onLongPress={() => confirmDelete(c)}
+            >
+              <View style={[styles.iconChip, { backgroundColor: colors.surfaceVariant, borderColor: c.color ?? colors.hairline }]}>
+                <Text style={styles.iconText}>{c.icon || '▪'}</Text>
+              </View>
+              <Text style={[styles.name, { color: colors.text }]}>{c.name}</Text>
+              {c.isDefault ? <Text style={[styles.defaultTag, { color: colors.textTertiary }]}>default</Text> : null}
+            </TouchableOpacity>
+            {childrenOf(c.id).map((s, j, arr) => (
+              <TouchableOpacity
+                key={s.id}
+                style={[styles.subRow, (i < list.length - 1 || j < arr.length - 1) && { borderBottomWidth: 1, borderBottomColor: colors.hairline }]}
+                onPress={() => openEdit(s)}
+                onLongPress={() => confirmDelete(s)}
+              >
+                <Text style={[styles.subBranch, { color: colors.textTertiary }]}>└</Text>
+                <Text style={styles.subIcon}>{s.icon || '▪'}</Text>
+                <Text style={[styles.subName, { color: colors.textSecondary }]}>{s.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         ))}
         {list.length === 0 && (
           <Text style={[styles.empty, { color: colors.textTertiary }]}>None yet.</Text>
@@ -134,10 +187,13 @@ export default function ManageCategoriesScreen() {
             style={[styles.modal, { backgroundColor: colors.surface, borderColor: colors.hairlineStrong }]}
             onStartShouldSetResponder={() => true}
           >
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {editor && (
               <>
                 <Text style={[styles.modalTitle, { color: colors.text }]}>
-                  {editor.id ? 'Edit Category' : 'New Category'}
+                  {editor.parentId
+                    ? `Edit Subcategory · ${cats.find((c) => c.id === editor.parentId)?.name ?? ''}`
+                    : editor.id ? 'Edit Category' : 'New Category'}
                 </Text>
 
                 {/* Emoji + name row (Cashew-style: big icon preview + inline name) */}
@@ -169,7 +225,8 @@ export default function ManageCategoriesScreen() {
                   Tap the square and type any emoji from your keyboard
                 </Text>
 
-                {/* Type selector */}
+                {/* Type selector — a subcategory inherits its parent's type */}
+                {!editor.parentId && (
                 <View style={styles.typeRow}>
                   {(['expense', 'income'] as const).map((t) => (
                     <TouchableOpacity
@@ -186,26 +243,85 @@ export default function ManageCategoriesScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
+                )}
 
-                {/* Colour strip with live icon preview (Cashew-style) */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginTop: 14 }}>
-                  <View style={styles.colorRow}>
-                    {CATEGORY_COLORS.map((c) => (
+                {/* Colour grid — one unique color per category; taken swatches
+                    are dimmed and disabled. Subcategories use the parent's
+                    color family. */}
+                {!editor.parentId && (
+                <View style={styles.colorGrid}>
+                  {CATEGORY_COLORS.map((c) => {
+                    const taken = takenColors(editor.id).has(c.toLowerCase());
+                    const active = editor.color === c;
+                    return (
                       <TouchableOpacity
                         key={c}
+                        disabled={taken}
                         style={[styles.swatch, {
-                          borderColor: editor.color === c ? c : 'transparent',
+                          borderColor: active ? c : 'transparent',
                           backgroundColor: colors.surfaceVariant,
+                          opacity: taken ? 0.25 : 1,
                         }]}
                         onPress={() => setEditor({ ...editor, color: c })}
                       >
                         <View style={[styles.swatchDot, { backgroundColor: c }]}>
-                          <Text style={styles.swatchEmoji}>{editor.icon || ' '}</Text>
+                          <Text style={styles.swatchEmoji}>{active ? (editor.icon || '✓') : taken ? '✕' : ' '}</Text>
                         </View>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
+                    );
+                  })}
+                </View>
+                )}
+
+                {/* Subcategories — Cashew-style, managed inline on a saved
+                    main category */}
+                {!editor.parentId && (
+                  <>
+                    <Text style={[styles.subsHeader, { color: colors.textSecondary }]}>Subcategories</Text>
+                    {editor.id ? (
+                      <>
+                        {childrenOf(editor.id).map((s) => (
+                          <View key={s.id} style={[styles.subEditRow, { borderColor: colors.hairline }]}>
+                            <Text style={styles.subIcon}>{s.icon || '▪'}</Text>
+                            <Text style={[styles.subName, { color: colors.text, flex: 1 }]}>{s.name}</Text>
+                            <TouchableOpacity onPress={() => confirmDelete(s)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Text style={{ color: colors.expense, fontFamily: fonts.sansBold, fontSize: 12 }}>✕</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                        <View style={styles.subAddRow}>
+                          <TextInput
+                            style={[styles.subAddIcon, { backgroundColor: colors.surfaceVariant, color: colors.text, borderColor: colors.hairline }]}
+                            value={subIcon}
+                            onChangeText={(t) => setSubIcon(Array.from(t).slice(-2).join('').trim())}
+                            placeholder="🙂"
+                            placeholderTextColor={colors.textTertiary}
+                            maxLength={8}
+                          />
+                          <TextInput
+                            style={[styles.subAddName, { backgroundColor: colors.surfaceVariant, color: colors.text, borderColor: colors.hairline }]}
+                            value={subName}
+                            onChangeText={setSubName}
+                            placeholder="New subcategory"
+                            placeholderTextColor={colors.textTertiary}
+                            maxLength={40}
+                          />
+                          <TouchableOpacity
+                            style={[styles.subAddBtn, { backgroundColor: colors.goldDim, borderColor: colors.hairlineStrong, opacity: subName.trim() ? 1 : 0.5 }]}
+                            disabled={!subName.trim()}
+                            onPress={addSub}
+                          >
+                            <Text style={{ color: colors.gold, fontFamily: fonts.sansBold, fontSize: 16 }}>+</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    ) : (
+                      <Text style={[styles.emojiHint, { color: colors.textTertiary }]}>
+                        Save the category first, then reopen it to add subcategories.
+                      </Text>
+                    )}
+                  </>
+                )}
 
                 <View style={styles.actions}>
                   <TouchableOpacity onPress={() => setEditor(null)}>
@@ -223,6 +339,7 @@ export default function ManageCategoriesScreen() {
                 </View>
               </>
             )}
+            </ScrollView>
           </View>
         </Pressable>
         </KeyboardAvoidingView>
@@ -254,7 +371,7 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center', alignItems: 'center', padding: 24,
   },
-  modal: { width: '100%', borderRadius: 20, borderWidth: 1, padding: 22 },
+  modal: { width: '100%', maxHeight: '100%', borderRadius: 20, borderWidth: 1, padding: 22 },
   modalTitle: { fontFamily: fonts.sansBold, fontSize: 17, marginBottom: 18 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   bigIcon: {
@@ -270,13 +387,32 @@ const styles = StyleSheet.create({
   typeRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
   typeChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 99, borderWidth: 1 },
   typeText: { fontFamily: fonts.sansSemiBold, fontSize: 12.5 },
-  colorRow: { flexDirection: 'row', gap: 10 },
-  swatch: { borderRadius: 14, borderWidth: 2, padding: 3 },
-  swatchDot: {
-    width: 38, height: 38, borderRadius: 10,
+  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  subRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingLeft: 34, paddingRight: 14, paddingVertical: 9 },
+  subBranch: { fontFamily: fonts.mono, fontSize: 12 },
+  subIcon: { fontSize: 13 },
+  subName: { fontFamily: fonts.sansMedium, fontSize: 12.5 },
+  subsHeader: { ...sectionLabel, fontSize: 9.5, marginTop: 16, marginBottom: 8 },
+  subEditRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 9,
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8, marginBottom: 6,
+  },
+  subAddRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 2 },
+  subAddIcon: {
+    width: 40, height: 40, borderRadius: 10, borderWidth: 1,
+    textAlign: 'center', fontSize: 16, padding: 0,
+  },
+  subAddName: { flex: 1, height: 40, borderRadius: 10, borderWidth: 1, paddingHorizontal: 11, fontFamily: fonts.sans, fontSize: 13 },
+  subAddBtn: {
+    width: 40, height: 40, borderRadius: 10, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
-  swatchEmoji: { fontSize: 17 },
+  swatch: { borderRadius: 12, borderWidth: 2, padding: 2.5 },
+  swatchDot: {
+    width: 32, height: 32, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  swatchEmoji: { fontSize: 14 },
   actions: {
     flexDirection: 'row', justifyContent: 'flex-end',
     alignItems: 'center', gap: 18, marginTop: 22,
