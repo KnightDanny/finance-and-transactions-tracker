@@ -5,7 +5,7 @@
 # 💰 Finance & Transactions Tracker
 
 **A fully offline, privacy-first Android app that turns your bank SMS into a budget.**
-Automatically reads transaction messages to track spending, manage budgets, and monitor net worth across multiple Ethiopian bank accounts.
+Automatically reads transaction messages and exchange emails to track spending, manage budgets, and monitor net worth across multiple accounts and currencies.
 
 <p>
   <img alt="React Native" src="https://img.shields.io/badge/React_Native-0.83-61DAFB?logo=react&logoColor=black">
@@ -22,7 +22,7 @@ Automatically reads transaction messages to track spending, manage budgets, and 
 
 </div>
 
-Built for banks that don't offer API access — the app parses SMS notifications from **Commercial Bank of Ethiopia (CBE)** and **TeleBirr** to extract transaction data in real time.
+Built for banks that don't offer API access — the app parses SMS notifications from **Commercial Bank of Ethiopia (CBE)**, **Bank of Abyssinia (BOA)**, **Awash Bank**, and **TeleBirr** in real time, and can optionally sync transaction emails from **Binance**, **Bybit**, **OKX**, and **Morse** via Gmail.
 
 ---
 
@@ -41,29 +41,51 @@ Grab the latest `.apk` from the [Releases page](https://github.com/KnightDanny/f
 - Keyword-based parsing engine (not regex-dependent on exact formats — resilient to SMS format changes)
 - Extracts: amount, fees (service charge, VAT, disaster fund), balance, counterparty, reference number, date
 - Deduplication via unique reference numbers to prevent double-counting
-- Supports **CBE** and **TeleBirr**, with an extensible parser architecture for adding new banks
+- Detects transfers between your own accounts and excludes them from income/expense totals
+- Supports **CBE**, **BOA**, **Awash Bank**, and **TeleBirr**, with an extensible parser architecture for adding new banks
+
+### 📧 Gmail Transaction Sync
+- Optional Google sign-in to import transaction emails from **Binance**, **Bybit**, **OKX**, and **Morse**
+- Incremental watermark-based fetching — only new emails are processed
+- Balance-anchor guard keeps imported history consistent with your stated balances
+- Runs alongside SMS sync on app open
+
+### 💱 Multi-Currency Accounts
+- Accounts in any currency (USD, USDT, EUR, …) next to your ETB bank accounts
+- Exchange-rates screen with manual overrides and automatic rate fill
+- Net worth and summaries converted to ETB; per-item amounts stay in their native currency
 
 ### 🏠 Multi-Account Dashboard
-- Aggregated net worth across all accounts
-- Per-account balance cards with bank branding (logos & colors)
-- Monthly income vs. expense summary with spending breakdown
-- Spending by category pie chart
-- Budget progress overview
-- Recent transactions feed
+- Aggregated net worth across all accounts, loans included
+- Customizable, collapsible dashboard sections
+- Per-account balance cards with provider branding (logos & colors)
+- Income vs. expense summary for the selected period
+- Interactive spending donut chart: tap-to-highlight slices, subcategory grouping toggle, persisted period selection (this month / all time / custom range)
+- Budget progress overview and recent transactions feed
 
 ### 📋 Transaction Management
-- Full transaction list with **month-by-month filtering**
+- Full ledger with date-range and account filters, sticky day headers, and per-row timestamps
 - Filter by type (Income / Expense) and by category (multi-select)
 - Detailed transaction view with editable counterparty, category, and notes
-- Manual transaction entry for cash or untracked payments
-- Monthly income / expense / net summary bar
+- **Transaction splits** — divide one transaction across multiple categories, loan repayments, or people
+- **Subcategories** — one-level category nesting with two-tier pickers and unique category colors
+- Manual transaction entry with a built-in calculator on every amount field
+- Transfer pairing for manual person-to-person and own-account transfers
+- CSV export
 
-### 📊 Budget Tracking
-- Set monthly spending limits per category
-- Visual progress bars with color-coded status (🟢 green / 🟡 amber / 🔴 red)
-- Total budget utilization summary
-- Over-budget warnings with exact overage amounts
-- Month-to-month navigation
+### 📊 Period Budgets
+- Monthly-recurring or custom date-range budgets (future periods allowed)
+- Include or exclude specific categories and subcategories — or budget all spending, fees included
+- Per-category caps inside a budget
+- Per-day allowance line so you know what you can spend today
+- Pin budgets to the home dashboard
+- Full-page budget editor with collapsible sections
+
+### 🤝 Loan Tracking
+- Track money lent and borrowed per person, with due dates
+- Record repayments/collections; outstanding balance updates automatically
+- Per-loan currency with converted totals
+- Outstanding loans feed into net worth (lent adds, borrowed subtracts)
 
 ### ⚖️ Balance Reconciliation
 - Automatically detects gaps between expected and actual balances
@@ -79,9 +101,9 @@ Grab the latest `.apk` from the [Releases page](https://github.com/KnightDanny/f
 - Lock screen overlay with cooldown after failed attempts
 
 ### 🎨 Theming
-- Material 3 inspired design system
+- Warm, custom design system: champagne-gold accents on ink surfaces, monospaced amounts
 - Light and dark mode support (follows system preference)
-- Bank-branded account cards (CBE: purple, TeleBirr: blue)
+- Provider-branded account cards (CBE, TeleBirr, BOA, Awash, Binance, Bybit, OKX, Morse)
 - Semantic color tokens for income, expense, warnings, and accents
 
 ---
@@ -96,6 +118,8 @@ Grab the latest `.apk` from the [Releases page](https://github.com/KnightDanny/f
 | 🗄️ **Database** | expo-sqlite + Drizzle ORM |
 | 🐻 **State Management** | Zustand |
 | 🔐 **Authentication** | expo-secure-store + expo-local-authentication + expo-crypto |
+| 📧 **Email Sync** | Google Sign-In + Gmail API |
+| 📈 **Charts** | Custom SVG donut chart (react-native-svg) |
 | 🎞️ **Animations** | react-native-reanimated |
 | 📱 **Native Modules** | Custom Kotlin module for SMS inbox access |
 | 🤖 **Platform** | Android only (requires native SMS permissions) |
@@ -108,29 +132,37 @@ Grab the latest `.apk` from the [Releases page](https://github.com/KnightDanny/f
 app/                          # Screens (Expo Router file-based routing)
 ├── (tabs)/                   # Bottom tab navigator
 │   ├── index.tsx             # 🏠 Home / Dashboard
-│   ├── transactions.tsx      # 📋 Transaction list with filters
-│   ├── budgets.tsx           # 📊 Budget management
+│   ├── transactions.tsx      # 📋 Transaction ledger with filters
+│   ├── budgets.tsx           # 📊 Period budgets overview
 │   └── settings.tsx          # ⚙️ Settings & security
 ├── transaction/
-│   ├── [id].tsx              # 🔍 Transaction detail (view/edit)
+│   ├── [id].tsx              # 🔍 Transaction detail (view/edit/split)
 │   └── add.tsx               # ➕ Manual transaction entry
 ├── account/
 │   └── [id].tsx              # 🏦 Account detail with transactions
+├── budget-editor.tsx         # 📝 Full-page budget create/edit
+├── loans.tsx                 # 🤝 Loan tracking
+├── manage-accounts.tsx       # 💼 Account & currency management
+├── manage-categories.tsx     # 🏷️ Categories & subcategories
+├── exchange-rates.tsx        # 💱 Exchange rate management
+├── customize-dashboard.tsx   # 🎛️ Dashboard section visibility
 └── reconciliation.tsx        # ⚖️ Balance gap resolution
 
 src/
 ├── db/
-│   ├── schema.ts             # 📐 Drizzle ORM table definitions (8 tables)
-│   ├── provider.tsx          # 🔌 Database context provider
-│   ├── migrations/           # 📦 SQL migration files
+│   ├── schema.ts             # 📐 Drizzle ORM table definitions
+│   ├── provider.tsx          # 🔌 Database context provider + migrations
 │   └── repository/           # 💾 Data access layer (CRUD operations)
 ├── sms/
-│   ├── parsers/
-│   │   ├── cbe.ts            # 🏦 CBE SMS parser
-│   │   └── telebirr.ts       # 📱 TeleBirr SMS parser
+│   ├── parsers/              # 🏦 CBE, BOA, Awash, TeleBirr parsers
 │   ├── dispatcher.ts         # 🔀 Routes SMS to correct parser
 │   ├── sync.ts               # 🔄 Sync orchestrator (read → parse → dedupe → insert)
 │   └── reader.ts             # 📨 Native SMS inbox access
+├── email/
+│   ├── parsers/              # 📧 Binance, Bybit, Morse, OKX email parsers
+│   ├── gmail.ts              # 🔑 Google sign-in + Gmail API client
+│   ├── dispatcher.ts         # 🔀 Routes emails to correct parser
+│   └── sync.ts               # 🔄 Watermark-based email sync
 ├── reconciliation/
 │   └── engine.ts             # ⚙️ Gap detection & resolution algorithm
 ├── auth/
@@ -148,12 +180,15 @@ modules/
 
 ## 🗃️ Database Schema
 
-8 normalized tables managed with Drizzle ORM:
+Normalized tables managed with Drizzle ORM:
 
-- 🏦 **accounts** — bank, account number, custom label, latest balance
+- 🏦 **accounts** — bank, account number, custom label, currency, latest balance
 - 💳 **transactions** — amount, fees, balance after, counterparty, category, reference, source
-- 🏷️ **categories** — name, icon, type (income/expense)
-- 📊 **budgets** — per-category monthly spending limits
+- ✂️ **transaction_splits** — split one transaction across categories, loans, or people
+- 🏷️ **categories** — name, icon, color, type, optional parent (subcategories)
+- 📊 **period_budgets** — recurring or custom-range budgets with category include/exclude and caps
+- 💱 **currency_rates** — per-currency ETB exchange rates
+- 🤝 **loans** / **loan_payments** — lent & borrowed money with repayment history
 - 📈 **balance_snapshots** — historical balance records for net worth tracking
 - 🤖 **categorization_rules** — keyword-to-category auto-mapping
 - ⚖️ **reconciliation_gaps** — detected balance discrepancies with resolution status
@@ -215,6 +250,8 @@ export const newBankParser: BankParser = {
   },
 };
 ```
+
+Email parsers follow the same pattern in `src/email/parsers/` with their own dispatcher.
 
 ---
 
