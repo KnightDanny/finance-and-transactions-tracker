@@ -14,6 +14,7 @@ import { useAuthStore } from '@/src/auth/store';
 import { isBiometricAvailable } from '@/src/auth/biometric';
 import { PasscodeSetup } from '@/src/components/PasscodeSetup';
 import { CalendarPicker } from '@/src/components/CalendarPicker';
+import Constants from 'expo-constants';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { fonts, sectionLabel } from '@/constants/Type';
@@ -381,7 +382,7 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.footer}>
-        <Text style={[styles.footerText, { color: colors.textTertiary }]}>Budget Tracker v1.0.0</Text>
+        <Text style={[styles.footerText, { color: colors.textTertiary }]}>Budget Tracker v{Constants.expoConfig?.version ?? '1.0.1'}</Text>
       </View>
 
       {/* Sync-from-date modal */}
